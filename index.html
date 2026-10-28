@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>ذِمّتي — دفتر الديون الذكي</title>
-  <meta name="description" content="ذِمّتي: دفتر الديون اللي ما بينسى. سجّل من مين وبكم، فكّر الطرف الثاني بلمسة عبر واتساب، وكل بياناتك بتضل على جهازك — بدون تسجيل.">
+  <meta name="description" content="ذِمّتي: دفتر الديون اللي ما بينسى. سجّل الديون بتصنيفاتها ومواعيدها، تزامن مع حسابك، واطلب بذمتك بلمسة عبر واتساب.">
   <meta name="theme-color" content="#0F766E">
   <meta property="og:title" content="ذِمّتي — دفتر الديون الذكي">
-  <meta property="og:description" content="سجّل اللي عليك واللي ليك، واطلب بذمتك بلمسة واحدة. دفتر ذكي عربي بالكامل ومن غير تسجيل.">
+  <meta property="og:description" content="سجّل اللي عليك واللي ليك بتصنيف وموعد — وبياناتك ترجع معك من أي جهاز.">
   <meta property="og:type" content="website">
   <meta property="og:image" content="assets/icon-512.png">
   <link rel="manifest" href="manifest.json">
@@ -75,6 +75,15 @@
           </div>
         </div>
 
+        <button type="button" class="overdue-strip hidden" id="overdueStrip">
+          <span class="od-ic">⏰</span>
+          <span class="od-main">
+            <b id="overdueCount">0</b>
+            <small id="overdueNames"></small>
+          </span>
+          <span class="od-go">عرض</span>
+        </button>
+
         <div class="section-head">
           <h2>آخر التحديثات</h2>
           <button type="button" class="link-btn" data-goto="people">عرض الكل</button>
@@ -111,8 +120,10 @@
           <button type="button" class="chip active" data-filter="all">الكل</button>
           <button type="button" class="chip" data-filter="credit">ليّا عليهم</button>
           <button type="button" class="chip" data-filter="debit">عليّ لهم</button>
+          <button type="button" class="chip" data-filter="overdue">⏰ متأخرات</button>
           <button type="button" class="chip" data-filter="settled">مسدّد</button>
         </div>
+        <div class="chips cat-filter hidden" id="catFilter"></div>
         <div id="peopleList" class="list"></div>
         <div id="peopleEmpty" class="empty hidden">
           <p>ما لقينا حدا بهذا الوصف.</p>
@@ -139,6 +150,33 @@
           </div>
         </div>
 
+        <div class="set-group" id="accountBox">
+          <h3>الحساب والمزامنة السحابية</h3>
+          <div id="accountLoggedOut">
+            <button type="button" class="set-item" id="btnOpenLogin">
+              <span>🔑 تسجيل الدخول</span><small>ديونك ترجع من أي جهاز</small>
+            </button>
+            <div class="set-hint">بدون دخول بيشتغل كلشي محليًا — الدخول بيزامن نسختك على جيت هوب.</div>
+          </div>
+          <div id="accountLoggedIn" hidden>
+            <div class="set-item">
+              <span>👤 <b id="accountLogin">@—</b></span><small id="syncInfo">—</small>
+            </div>
+            <button type="button" class="set-item" id="btnLogout">
+              <span>🚪 تسجيل الخروج</span><small>البيانات تضل بحسابك</small>
+            </button>
+          </div>
+        </div>
+
+        <div class="set-group">
+          <h3>التصنيفات (البيت، الدكان، …)</h3>
+          <div class="set-row"><div id="catManage" class="cat-manage"></div></div>
+          <div class="set-row cat-add-row">
+            <input id="newCatName" class="input" type="text" placeholder="تصنيف جديد..." maxlength="30" autocomplete="off">
+            <button type="button" class="btn btn-primary btn-sm" id="btnAddCat">إضافة</button>
+          </div>
+        </div>
+
         <div class="set-group">
           <h3>اسمك في الرسائل والروابط</h3>
           <div class="set-row">
@@ -148,6 +186,9 @@
 
         <div class="set-group">
           <h3>البيانات</h3>
+          <button type="button" class="set-item" id="btnNotify">
+            <span>🔔 تنبيهات المتصفح</span><small>—</small>
+          </button>
           <button type="button" class="set-item" id="btnExport">
             <span>⬇︎ تصدير نسخة احتياطية</span><small>ملف JSON</small>
           </button>
@@ -166,7 +207,7 @@
         <div class="set-group">
           <h3>عن الفكرة</h3>
           <a class="set-item" href="jadwa.html">
-            <span>📊 فحص الجدوى الكامل</span><small>الانتشار 95.9%</small>
+            <span>📊 فحص الجدوى الكامل</span><small>الانتشار 96%</small>
           </a>
           <button type="button" class="set-item js-share-app">
             <span>📤 مشاركة التطبيق</span><small>رسالة + بطاقة</small>
@@ -175,11 +216,11 @@
 
         <div class="privacy card">
           <b>🔒 الخصوصية أولًا</b>
-          <p>كل بياناتك محفوظة داخل متصفحك أنت — بدون حساب، بدون سيرفر، بدون تتبع. لو مسحت بيانات المتصفح، بيروحوا، فلا تنسى التصدير.</p>
+          <p>بياناتك محليًا بجهازك افتراضيًا. لو سجّلت دخول، بتنسخ سرّيًا بحساب جيت هوب الخاص فيك — بلا سيرفراتنا، وبلا تتبع. لو مسحت محليًا بدون دخول، بيروحوا، فلا تنسى التصدير.</p>
         </div>
 
         <footer class="app-footer">
-          ذِمّتي v1.1.0 — مبني بالكامل عربيًا · <a href="jadwa.html">فحص الجدوى</a>
+          ذِمّتي v1.2.0 — مبني بالكامل عربيًا · <a href="jadwa.html">فحص الجدوى</a>
         </footer>
       </section>
 
@@ -204,10 +245,10 @@
     </nav>
   </div>
 
-  <!-- ===== طبقات (Sheets) ===== -->
+  <!-- ===== طبقات ===== -->
   <div class="backdrop" id="backdrop" hidden></div>
 
-  <!-- طلب ذمّة موجّه (يصل عبر الرابط) -->
+  <!-- طلب ذمّة -->
   <div class="sheet" id="sheetInvite" hidden role="dialog" aria-modal="true">
     <div class="sheet-grip"></div>
     <div class="invite-box">
@@ -217,6 +258,32 @@
       <div class="invite-sum" id="inviteSum"></div>
       <button type="button" class="btn btn-primary btn-block" id="btnInviteAccept">سجّل في دفترك</button>
       <button type="button" class="btn btn-ghost btn-block" id="btnInviteLater">افتحني الدفتر عادي</button>
+    </div>
+  </div>
+
+  <!-- تسجيل الدخول -->
+  <div class="sheet" id="sheetLogin" hidden role="dialog" aria-modal="true">
+    <div class="sheet-grip"></div>
+    <div class="login-box">
+      <div class="invite-ic">🔑</div>
+      <h3>تسجيل الدخول والمزامنة</h3>
+      <p class="login-sub">ادخل بحساب جيت هوب (GitHub) — ديونك كلها بتنحفظ عليه وترجع معك من أي جهاز، إلا إذا حذفتها بنفسك.</p>
+      <div class="field">
+        <label for="loginToken">توكن GitHub (نطاقه gist فقط)</label>
+        <input id="loginToken" class="input" type="password" placeholder="ghp_..." autocomplete="off" spellcheck="false">
+      </div>
+      <button type="button" class="btn btn-primary btn-block" id="btnLogin">دخول ومزامنة</button>
+      <details class="login-help">
+        <summary>كيف أنشئ التوكن؟ (30 ثانية)</summary>
+        <ol>
+          <li>افتح <b>github.com/settings/tokens</b></li>
+          <li>Generate new token (classic) — مدة 30 يوم</li>
+          <li>علّم الصلاحية <b>gist</b> فقط ✅</li>
+          <li>Generate وا kopية وارجع لهون</li>
+        </ol>
+        <p class="login-note">التوكن بينحفظ بجهازك فقط ولا بينبعث لأي سيرفر غير جيت هوب. تقدر تشيله بأي وقت.</p>
+      </details>
+      <button type="button" class="btn btn-ghost btn-block" data-close>إلغاء</button>
     </div>
   </div>
 
@@ -241,6 +308,17 @@
         <input id="pAmount" class="input" type="text" inputmode="decimal" placeholder="0" autocomplete="off">
       </div>
       <div class="field">
+        <label>التصنيف <span class="opt">(اختياري)</span></label>
+        <div class="cat-picker" id="catChips"></div>
+        <div id="quickCatRow" class="quick-cat" hidden>
+          <input id="quickCatName" class="input" type="text" placeholder="اسم تصنيف جديد..." maxlength="30" autocomplete="off">
+        </div>
+      </div>
+      <div class="field">
+        <label for="pDue">موعد الاستحقاق <span class="opt">(اختياري)</span></label>
+        <input id="pDue" class="input" type="date">
+      </div>
+      <div class="field">
         <label for="pNote">ملاحظة (اختياري)</label>
         <input id="pNote" class="input" type="text" placeholder="مثلاً: قرض عرس" maxlength="80" autocomplete="off">
       </div>
@@ -254,7 +332,7 @@
     <div id="detailBody"></div>
   </div>
 
-  <!-- مبلغ (دفعة / دين جديد) -->
+  <!-- مبلغ -->
   <div class="sheet" id="sheetPay" hidden role="dialog" aria-modal="true">
     <div class="sheet-grip"></div>
     <form id="formPay" novalidate>
@@ -271,7 +349,26 @@
         <label for="payAmount">المبلغ</label>
         <input id="payAmount" class="input" type="text" inputmode="decimal" placeholder="0" autocomplete="off" required>
       </div>
+      <div class="field" id="payNoteField">
+        <label for="payNote">ملاحظة الدفعة <span class="opt">(اختياري)</span></label>
+        <input id="payNote" class="input" type="text" placeholder="مثلاً: دفع نقدًا" maxlength="60" autocomplete="off">
+      </div>
       <button class="btn btn-primary btn-block" type="submit">تأكيد</button>
+    </form>
+  </div>
+
+  <!-- الموعد -->
+  <div class="sheet" id="sheetDue" hidden role="dialog" aria-modal="true">
+    <div class="sheet-grip"></div>
+    <form id="formDue" novalidate>
+      <h3>📅 موعد الاستحقاق</h3>
+      <div class="field">
+        <label for="dueDate">ينتهي الدين عند هذا التاريخ</label>
+        <input id="dueDate" class="input" type="date">
+      </div>
+      <button class="btn btn-primary btn-block" type="submit">حفظ الموعد</button>
+      <button type="button" class="btn btn-ghost btn-block" id="dueClear" hidden>حذف الموعد</button>
+      <button type="button" class="btn btn-ghost btn-block" data-close>إلغاء</button>
     </form>
   </div>
 

@@ -1,9 +1,12 @@
 'use strict';
-/* ═══════════ ذِمّتي — دفتر الديون الذكي (v1.1.0) ═══════════
-   كل البيانات محلية (localStorage) — بدون سيرفر، بدون تتبع. */
+/* ═══════════ ذِمّتي — دفتر الديون الذكي (v1.2.0) ═══════════
+   محلية أولاً · الحساب + المزامنة السحابية اختيارية (GitHub Gist) */
 
 /* ─── ثوابت ─── */
 const KEY = 'dhimmati.v1';
+const SESSION_KEY = 'dhimmati.session';
+const SEEN_KEY = 'dhimmati.seen';
+const GIST_FILE = 'dhimmati.json';
 
 const CUR = {
   ILS: { sym: '₪', label: 'شيكل' },
@@ -15,6 +18,8 @@ const CUR = {
   MAD: { sym: 'د.م', label: 'درهم مغربي' },
   EUR: { sym: '€', label: 'يورو' }
 };
+
+const DEFAULT_CATS = ['البيت', 'الدكان'];
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -40,7 +45,7 @@ function parseAmt(v) {
 
 /* ─── الحالة ─── */
 function defaults() {
-  return { v: 1, currency: 'ILS', theme: 'auto', myName: '', people: [], log: [] };
+  return { v: 1, currency: 'ILS', theme: 'auto', myName: '', cats: DEFAULT_CATS.slice(), people: [], log: [] };
 }
 
 function load() {
@@ -51,28 +56,34 @@ function load() {
       if (d && Array.isArray(d.people) && Array.isArray(d.log)) {
         d.people.forEach((p) => { if (typeof p.bal !== 'number') p.bal = 0; });
         if (typeof d.myName !== 'string') d.myName = '';
+        if (!Array.isArray(d.cats)) d.cats = DEFAULT_CATS.slice();
         return d;
       }
     }
-  } catch (e) { /* بيانات تالفة — نبدأ من جديد */ }
+  } catch (e) { /* بيانات تالفة */ }
   return defaults();
 }
 
 let S = load();
 let curFilter = 'all';
+let curCat = 'all';
 let editingId = null;
 let currentPid = null;
 let formDir = 'credit';
+let formCat = '';
 let payMode = 'pay';
 let payDir = 'credit';
 let shareCtx = { type: 'app' };
 let sheetStack = [];
 let pendingInvite = null;
 let deferredPrompt = null;
+let undoBuf = null;
+let undoTimer = null;
 
-function save() {
+function save(schedule = true) {
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
-  catch (e) { toast('تعذّر الحفظ — مساحة المتصفح ممتلئة'); }
+  catch (e) { toast('تعذّر الحفظ — مساحة المتصفح ممتلئة'); return; }
+  if (schedule) scheduleSync();
 }
 
 const findP = (id) => S.people.find((p) => p.id === id);
@@ -96,6 +107,40 @@ function ymd() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+function dateInputVal(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const p = (x) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function dueTs(v) { // نهاية اليوم المختار
+  if (!v) return 0;
+  const t = new Date(v + 'T23:59:59').getTime();
+  return isFinite(t) ? t : 0;
+}
+
+function endOfToday() { const d = new Date(); d.setHours(23, 59, 59, 999); return d.getTime(); }
+
+function dueInfo(p) {
+  if (!p.due) return null;
+  const now = Date.now();
+  const day = 864e5;
+  if (p.bal === 0) return { cls: 'done', text: `📅 ${fmtDate(p.due)} — انتهى ومسدّد ✔` };
+  if (p.due <= endOfToday()) {
+    const lateDays = Math.max(1, Math.ceil((endOfToday() - p.due) / day));
+    const isToday = new Date(p.due).toDateString() === new Date().toDateString();
+    return {
+      cls: 'late',
+      text: isToday ? `⏰ موعدك اليوم — ${fmtDate(p.due)}` : `⏰ متأخر ${lateDays} يوم (كان ${fmtDate(p.due)})`
+    };
+  }
+  const left = Math.max(1, Math.ceil((p.due - now) / day));
+  return { cls: 'soon', text: `📅 ${fmtDate(p.due)} — باقي ${left} يوم` };
+}
+
+function isOverdue(p) { return !!(p.due && p.bal !== 0 && p.due <= endOfToday()); }
+
 function lastAct(pid) {
   let t = 0;
   for (const e of S.log) if (e.pid === pid && e.date > t) t = e.date;
@@ -118,6 +163,11 @@ function totals() {
 function balClass(bal) { return bal > 0 ? 'pos' : bal < 0 ? 'neg' : 'zero'; }
 function balDir(bal) { return bal > 0 ? 'ليّا عليه' : bal < 0 ? 'عليّ له' : 'مسدّد'; }
 
+function allCats() {
+  const used = S.people.map((p) => p.cat).filter(Boolean);
+  return Array.from(new Set([...(S.cats || []), ...used]));
+}
+
 /* ─── المظهر ─── */
 const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
 
@@ -132,11 +182,229 @@ function applyTheme() {
 }
 mqDark.addEventListener('change', () => { if (S.theme === 'auto') applyTheme(); });
 
+/* ─── الحساب والمزامنة (GitHub Gist) ─── */
+let sess = loadSession();
+let syncTimer = null, syncInFlight = false, syncQueued = false;
+let lastSyncAt = null, syncState = 'idle', syncErr = '';
+
+function loadSession() {
+  try { const r = localStorage.getItem(SESSION_KEY); return r ? JSON.parse(r) : null; }
+  catch (e) { return null; }
+}
+function persistSession(x) {
+  try { x ? localStorage.setItem(SESSION_KEY, JSON.stringify(x)) : localStorage.removeItem(SESSION_KEY); }
+  catch (e) { /* */ }
+}
+
+async function gh(path, opts = {}) {
+  if (!sess) throw new Error('غير مسجّل الدخول');
+  const res = await fetch('https://api.github.com' + path, {
+    method: opts.method || 'GET',
+    headers: Object.assign({
+      'Authorization': 'Bearer ' + sess.token,
+      'Accept': 'application/vnd.github+json',
+      'Content-Type': 'application/json'
+    }, opts.headers || {}),
+    body: opts.body
+  });
+  if (!res.ok) {
+    let msg = '';
+    try { msg = (await res.json()).message || ''; } catch (e) { /* */ }
+    throw new Error(res.status === 401 ? 'التوكن غير صالح أو منتهي' : 'GitHub: ' + res.status + ' ' + msg);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+async function findGistId() {
+  const gists = await gh('/gists?per_page=100');
+  const g = (gists || []).find((x) => x.files && x.files[GIST_FILE]);
+  return g ? g.id : null;
+}
+
+async function pullRemote() {
+  if (!sess.gistId) sess.gistId = await findGistId();
+  if (!sess.gistId) { persistSession(sess); return null; }
+  const g = await gh('/gists/' + sess.gistId);
+  const f = g.files && g.files[GIST_FILE];
+  if (!f || !f.content) return null;
+  try { return JSON.parse(f.content); } catch (e) { return null; }
+}
+
+async function pushRemote(data, extraFiles) {
+  const files = Object.assign({ [GIST_FILE]: { content: JSON.stringify(data) } }, extraFiles || {});
+  const payload = JSON.stringify({ description: 'ذِمّتي — نسخة احتياطية', files });
+  if (!sess.gistId) {
+    const g = await gh('/gists', { method: 'POST', body: payload });
+    sess.gistId = g.id;
+    persistSession(sess);
+  } else {
+    await gh('/gists/' + sess.gistId, { method: 'PATCH', body: payload });
+  }
+}
+
+function scheduleSync() {
+  if (!sess) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(runSync, 1200);
+}
+
+async function runSync() {
+  if (!sess) return;
+  if (syncInFlight) { syncQueued = true; return; }
+  syncInFlight = true;
+  syncState = 'syncing';
+  renderAccount();
+  try {
+    await pushRemote(S);
+    lastSyncAt = Date.now();
+    syncState = 'ok';
+    syncErr = '';
+  } catch (e) {
+    syncState = 'error';
+    syncErr = e.message || 'تعذّرت المزامنة';
+  } finally {
+    syncInFlight = false;
+    renderAccount();
+    if (syncQueued) { syncQueued = false; scheduleSync(); }
+  }
+}
+
+async function doLogin(tokenRaw) {
+  const token = String(tokenRaw || '').trim();
+  if (!token) { toast('الصق التوكن أولًا'); return; }
+  const btn = $('#btnLogin');
+  if (btn) { btn.disabled = true; btn.textContent = 'جارٍ التحقق...'; }
+  try {
+    const res = await fetch('https://api.github.com/user', {
+      headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json' }
+    });
+    if (!res.ok) throw new Error(res.status === 401 ? 'التوكن غير صالح' : 'تعذّر الاتصال بجيت هوب');
+    const u = await res.json();
+    sess = { token, login: u.login, gistId: null };
+    persistSession(sess);
+    // سحب سحابي: إذا محلي فاضي → استرجاع؛ إذا في محلي → رفع احتياطي ثم تفوّق سحابي
+    const remote = await pullRemote();
+    if (remote && Array.isArray(remote.people)) {
+      const hadLocal = S.people.length > 0;
+      if (hadLocal) {
+        await pushRemote(S, { ['backup-local-' + ymd() + '-' + Date.now() + '.json']: { content: JSON.stringify(S) } });
+        sess.gistId = sess.gistId; persistSession(sess);
+      }
+      if (!hadLocal) {
+        S = Object.assign(defaults(), remote);
+        save(false);
+        applyTheme(); syncSettingsUI(); render();
+        toast(`أهلاً ${u.login} — رجّعنا ${S.people.length} شخص من السحابة ✔`);
+      } else {
+        toast(`أهلاً ${u.login} — محليتك اترفعت كنسخة احتياطية، والسحابة هي الأساس ✔`);
+      }
+    } else {
+      toast(`أهلاً ${u.login} — بنشغّل أول مزامنة ✔`);
+      scheduleSync();
+    }
+    lastSyncAt = Date.now();
+    syncState = 'ok';
+    closeTop();
+    renderAccount();
+  } catch (e) {
+    toast(e.message || 'فشل تسجيل الدخول');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'دخول ومزامنة'; }
+  }
+}
+
+async function doLogout() {
+  try { if (sess) await runSync(); } catch (e) { /* */ }
+  const ok = await confirmBox('تسجيل الخروج؟ البيانات بتنمسح من هالجهاز وتضل محفوظة بحسابك.', 'خروج');
+  if (!ok) return;
+  sess = null;
+  persistSession(null);
+  clearTimeout(syncTimer);
+  const keepCur = S.currency, keepTheme = S.theme;
+  S = defaults();
+  S.currency = keepCur;
+  S.theme = keepTheme;
+  save(false);
+  applyTheme(); syncSettingsUI(); render(); renderAccount();
+  toast('تم الخروج — ارجع بأي وقت وكلشي يرجع معك');
+}
+
+function syncStatusText() {
+  if (!sess) return '';
+  if (syncState === 'syncing') return '⏳ جارٍ المزامنة...';
+  if (syncState === 'error') return '⚠️ ' + (syncErr || 'تعذّرت المزامنة — تُحاول تلقائيًا');
+  if (lastSyncAt) {
+    const d = new Date(lastSyncAt);
+    const p = (x) => String(x).padStart(2, '0');
+    return `✅ آخر مزامنة ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  return '🟢 جاهز للمزامنة';
+}
+
+function renderAccount() {
+  const loggedOut = !sess;
+  $('#accountLoggedOut').hidden = !loggedOut;
+  $('#accountLoggedIn').hidden = loggedOut;
+  if (!loggedOut) {
+    $('#accountLogin').textContent = '@' + (sess.login || '');
+    $('#syncInfo').textContent = syncStatusText();
+  }
+  const nb = $('#btnNotify');
+  if (nb && 'Notification' in window) {
+    if (Notification.permission === 'granted') { nb.innerHTML = '<span>🔔 تنبيهات المتصفح</span><small>مفعّلة ✔</small>'; }
+    else if (Notification.permission === 'denied') { nb.innerHTML = '<span>🔔 تنبيهات المتصفح</span><small>ممنوعة من المتصفح</small>'; }
+    else { nb.innerHTML = '<span>🔔 تنبيهات المتصفح</span><small>تفعيل</small>'; }
+  }
+}
+
+/* ─── تنبيهات المواعيد ─── */
+function ensureNotifPerm() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+}
+
+function fireDueNotifications() {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  let seen = {};
+  try { seen = JSON.parse(localStorage.getItem(SEEN_KEY) || '{}'); } catch (e) { seen = {}; }
+  const kday = ymd();
+  let changed = false;
+  S.people.forEach((p) => {
+    if (!isOverdue(p)) return;
+    const k = p.id + '|' + kday;
+    if (seen[k]) return;
+    seen[k] = 1;
+    changed = true;
+    try {
+      new Notification('ذِمّتي — نسيت تسدّد الدين؟', {
+        body: `دين ${p.name} بمبلغ ${fmt(p.bal)} — الموعد كان ${fmtDate(p.due)}`,
+        icon: 'assets/icon-512.png',
+        tag: k
+      });
+    } catch (e) { /* */ }
+  });
+  if (changed) {
+    try {
+      const keys = Object.keys(seen);
+      if (keys.length > 400) keys.slice(0, keys.length - 300).forEach((kk) => delete seen[kk]);
+      localStorage.setItem(SEEN_KEY, JSON.stringify(seen));
+    } catch (e) { /* */ }
+  }
+}
+
+function scheduleDueChecks() {
+  fireDueNotifications();
+  setInterval(fireDueNotifications, 6 * 3600e3);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) fireDueNotifications(); });
+}
+
 /* ─── العرض ─── */
 function rowHTML(p) {
   const initial = esc((p.name || '?').trim().charAt(0) || '?');
   const cls = balClass(p.bal);
-  const sub = [p.note, balDir(p.bal)].filter(Boolean).join(' · ');
+  const bits = [p.note, p.cat, balDir(p.bal)].filter(Boolean);
+  if (isOverdue(p)) bits.push('⏰ متأخر');
+  const sub = bits.join(' · ');
   return `<button type="button" class="li" data-id="${p.id}">
     <span class="avatar ${cls}">${initial}</span>
     <span class="li-main"><b>${esc(p.name)}</b><small>${esc(sub)}</small></span>
@@ -153,6 +421,15 @@ function render() {
   net.className = 'hero-amount ' + balClass(t.net);
   $('#peopleCount').textContent = S.people.length ? S.people.length + ' شخص' : '';
 
+  // شريط المتأخرات
+  const od = S.people.filter(isOverdue);
+  const strip = $('#overdueStrip');
+  strip.classList.toggle('hidden', od.length === 0);
+  if (od.length) {
+    $('#overdueCount').textContent = od.length + (od.length === 1 ? ' دين متأخر' : ' ديون متأخرة');
+    $('#overdueNames').textContent = od.slice(0, 3).map((p) => p.name).join('، ') + (od.length > 3 ? ' …' : '');
+  }
+
   const sorted = sortPeople(S.people);
   const recent = sorted.slice(0, 5);
   $('#homeList').innerHTML = recent.map(rowHTML).join('');
@@ -160,6 +437,20 @@ function render() {
   $('#homeEmpty').classList.toggle('hidden', recent.length !== 0);
 
   renderPeopleView();
+  renderCatFilter();
+}
+
+function renderCatFilter() {
+  const cats = allCats();
+  const box = $('#catFilter');
+  box.classList.toggle('hidden', cats.length === 0);
+  if (!cats.length) return;
+  const used = (c) => S.people.some((p) => p.cat === c);
+  box.innerHTML =
+    `<button type="button" class="chip ${curCat === 'all' ? 'active' : ''}" data-cat="all">كل التصنيفات</button>` +
+    cats.map((c) =>
+      `<button type="button" class="chip ${curCat === c ? 'active' : ''} ${used(c) ? '' : 'chip-unused'}" data-cat="${esc(c)}">${esc(c)}</button>`
+    ).join('');
 }
 
 function renderPeopleView() {
@@ -169,6 +460,8 @@ function renderPeopleView() {
   if (curFilter === 'credit') arr = arr.filter((p) => p.bal > 0);
   if (curFilter === 'debit') arr = arr.filter((p) => p.bal < 0);
   if (curFilter === 'settled') arr = arr.filter((p) => p.bal === 0);
+  if (curFilter === 'overdue') arr = arr.filter(isOverdue);
+  if (curCat !== 'all') arr = arr.filter((p) => p.cat === curCat);
 
   $('#peopleList').innerHTML = arr.map(rowHTML).join('');
   const empty = arr.length === 0;
@@ -183,6 +476,7 @@ function showView(v) {
   $$('.view').forEach((el) => el.classList.toggle('hidden', el.id !== 'view-' + v));
   $$('.tab[data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
   window.scrollTo({ top: 0 });
+  if (v === 'settings') { syncSettingsUI(); renderAccount(); renderCatManage(); }
 }
 
 /* ─── الطبقات ─── */
@@ -211,27 +505,27 @@ function closeTop() {
   }, 300);
 }
 
-function closeAllSheets() {
-  while (sheetStack.length) {
-    const el = sheetStack.pop();
-    el.classList.remove('open');
-    setTimeout(() => { el.hidden = true; }, 300);
-  }
-  $('#backdrop').classList.remove('show');
-  document.body.classList.remove('no-scroll');
-  setTimeout(() => { if (!sheetStack.length) $('#backdrop').hidden = true; }, 300);
-}
-
-function toast(msg) {
+function toast(msg, actionLabel, actionCb) {
   const t = document.createElement('div');
   t.className = 'toast';
-  t.textContent = msg;
+  const span = document.createElement('span');
+  span.textContent = msg;
+  t.appendChild(span);
+  if (actionLabel && actionCb) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 't-act';
+    b.textContent = actionLabel;
+    b.onclick = () => { actionCb(); t.classList.remove('show'); setTimeout(() => t.remove(), 300); };
+    t.appendChild(b);
+  }
   $('#toasts').appendChild(t);
   requestAnimationFrame(() => t.classList.add('show'));
+  const life = actionLabel ? 7000 : 2600;
   setTimeout(() => {
     t.classList.remove('show');
     setTimeout(() => t.remove(), 350);
-  }, 2500);
+  }, life);
 }
 
 function confirmBox(msg, yesLabel = 'نعم، متأكد') {
@@ -255,11 +549,13 @@ function confirmBox(msg, yesLabel = 'نعم، متأكد') {
 }
 
 /* ─── العمليات ─── */
-function addPerson({ name, dir, amount, note }) {
+function addPerson({ name, dir, amount, note, cat, due }) {
   const p = {
     id: uid(),
     name: name.trim(),
     note: (note || '').trim(),
+    cat: (cat || '').trim(),
+    due: due || 0,
     created: Date.now(),
     bal: dir === 'credit' ? amount : -amount
   };
@@ -270,14 +566,14 @@ function addPerson({ name, dir, amount, note }) {
   return p;
 }
 
-function applyPay(pid, amount) {
+function applyPay(pid, amount, note) {
   const p = findP(pid);
   if (!p) return;
   const before = p.bal;
   const applied = Math.min(Math.abs(before), amount);
   if (applied <= 0) return;
   p.bal = before > 0 ? r2(before - applied) : r2(before + applied);
-  S.log.push({ id: uid(), pid, kind: 'pay', amount: applied, date: Date.now() });
+  S.log.push({ id: uid(), pid, kind: 'pay', amount: applied, note: (note || '').trim(), date: Date.now() });
   save();
   render();
 }
@@ -302,23 +598,53 @@ function settle(pid) {
 }
 
 function deletePerson(pid) {
-  S.people = S.people.filter((p) => p.id !== pid);
+  const p = findP(pid);
+  if (!p) return;
+  const logs = S.log.filter((e) => e.pid === pid);
+  undoBuf = { p, logs };
+  S.people = S.people.filter((x) => x.id !== pid);
   S.log = S.log.filter((e) => e.pid !== pid);
   save();
   render();
+  clearTimeout(undoTimer);
+  toast(`انحذف «${p.name}»`, 'تراجع ↩', () => {
+    if (!undoBuf) return;
+    S.people.push(undoBuf.p);
+    S.log.push(...undoBuf.logs);
+    undoBuf = null;
+    save();
+    render();
+    toast('رجع ✔');
+  });
+  undoTimer = setTimeout(() => { undoBuf = null; }, 7500);
 }
 
 /* ─── نموذج الشخص ─── */
+function renderCatPicker() {
+  const box = $('#catChips');
+  const cats = allCats();
+  box.innerHTML = cats.length
+    ? cats.map((c) =>
+        `<button type="button" class="cat-chip ${formCat === c ? 'active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`
+      ).join('') +
+      `<button type="button" class="cat-chip add" id="catAddBtn">+ جديد</button>`
+    : `<button type="button" class="cat-chip add" id="catAddBtn">+ تصنيف جديد</button>`;
+  $('#quickCatRow').hidden = true;
+}
+
 function openPersonForm(p = null) {
   editingId = p ? p.id : null;
   formDir = p ? (p.bal >= 0 ? 'credit' : 'debit') : 'credit';
+  formCat = p ? (p.cat || '') : '';
   $('#personFormTitle').textContent = p ? 'تعديل الشخص' : 'إضافة شخص';
   $('#pName').value = p ? p.name : '';
   $('#pNote').value = p ? p.note || '' : '';
   $('#pAmount').value = '';
+  $('#pDue').value = p && p.due ? dateInputVal(p.due) : '';
   $('#amountField').hidden = !!p;
   $('#amountField2').hidden = !!p;
   $$('#pDir .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.dir === formDir));
+  renderCatPicker();
   openSheet($('#sheetPerson'));
   setTimeout(() => $('#pName').focus(), 350);
 }
@@ -335,6 +661,7 @@ function renderDetail() {
   if (!p) { if (sheetStack.includes($('#sheetDetail'))) closeTop(); return; }
 
   const cls = balClass(p.bal);
+  const di = dueInfo(p);
   const logs = S.log.filter((e) => e.pid === p.id).sort((a, b) => b.date - a.date).slice(0, 30);
 
   const logHTML = logs.length
@@ -345,7 +672,7 @@ function renderDetail() {
           val = (e.dir === 'credit' ? '+' : '−') + fmt(e.amount);
           lc = e.dir === 'credit' ? 'l-pos' : 'l-neg';
         } else if (e.kind === 'pay') {
-          label = 'دفعة';
+          label = 'دفعة' + (e.note ? ` — ${esc(e.note)}` : '');
           val = '−' + fmt(e.amount);
           lc = 'l-neg';
         } else {
@@ -361,13 +688,17 @@ function renderDetail() {
     <div class="d-head">
       <div class="d-avatar ${cls}" style="${cls === 'pos' ? 'background:linear-gradient(135deg,#16A34A,#0E7C3B)' : cls === 'neg' ? 'background:linear-gradient(135deg,#F43F5E,#BE123C)' : 'background:linear-gradient(135deg,#64748B,#475569)'}">${esc(p.name.charAt(0))}</div>
       <h3>${esc(p.name)}</h3>
+      ${p.cat ? `<div class="d-cat">🏷 ${esc(p.cat)}</div>` : ''}
       ${p.note ? `<div class="d-note">${esc(p.note)}</div>` : ''}
       <div class="d-amount ${cls}">${p.bal === 0 ? 'مسدّد بالكامل ✔' : fmt(p.bal) + ' — ' + balDir(p.bal)}</div>
+      ${di ? `<div class="due-chip ${di.cls}">${di.text}</div>` : ''}
     </div>
     <div class="d-actions">
       <button type="button" class="d-act primary" data-act="pay" ${p.bal === 0 ? 'disabled style="opacity:.45"' : ''}><i>💸</i>دفعة</button>
       <button type="button" class="d-act primary" data-act="debt"><i>➕</i>دين جديد</button>
       <button type="button" class="d-act" data-act="share"><i>📤</i>مشاركة/طلب</button>
+      ${p.bal > 0 ? '<button type="button" class="d-act" data-act="remind"><i>🔔</i>تذكير</button>' : ''}
+      <button type="button" class="d-act" data-act="due"><i>📅</i>الموعد</button>
       <button type="button" class="d-act" data-act="edit"><i>✏️</i>تعديل</button>
       <button type="button" class="d-act ${p.bal !== 0 ? 'primary' : ''}" data-act="settle" ${p.bal === 0 ? 'disabled style="opacity:.45"' : ''}><i>✅</i>تسديد كامل</button>
       <button type="button" class="d-act danger" data-act="del"><i>🗑</i>حذف</button>
@@ -386,13 +717,16 @@ function openPaySheet(mode) {
   payMode = mode;
   payDir = p.bal >= 0 ? 'credit' : 'debit';
   $('#payAmount').value = '';
+  $('#payNote').value = '';
   if (mode === 'pay') {
     $('#payTitle').textContent = 'تسجيل دفعة';
     $('#payRemain').textContent = 'المتبقي: ' + fmt(p.bal);
     $('#payDirField').hidden = true;
+    $('#payNoteField').hidden = false;
   } else {
     $('#payTitle').textContent = 'دين جديد';
     $('#payDirField').hidden = p.bal !== 0;
+    $('#payNoteField').hidden = true;
     if (p.bal === 0) {
       payDir = 'credit';
       $$('#payDir .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.dir === payDir));
@@ -403,12 +737,20 @@ function openPaySheet(mode) {
   setTimeout(() => $('#payAmount').focus(), 350);
 }
 
+/* ─── الموعد ─── */
+function openDueSheet() {
+  const p = findP(currentPid);
+  if (!p) return;
+  $('#dueDate').value = p.due ? dateInputVal(p.due) : '';
+  $('#dueClear').hidden = !p.due;
+  openSheet($('#sheetDue'));
+}
+
 /* ─── المشاركة ─── */
 function appURL() {
   return location.origin + location.pathname.replace(/index\.html$/, '');
 }
 
-/* رابط طلب موجّه: يفتح عند الطرف الآخر باسمه ومبلغه — قلب حلقة الانتشار */
 function inviteURL(p) {
   const u = new URL(appURL());
   u.searchParams.set('req', '1');
@@ -423,31 +765,45 @@ function inviteURL(p) {
 function signOff() { return S.myName ? `\n— ${S.myName}` : ''; }
 
 function shareTextApp() {
-  return `بدك دفتر ذكي للي عليك واللي ليك؟ «ذِمّتي» بيسجّل الديون، بيفكّرك، وببلمسة بتوصل لواتساب — عربي بالكامل ومن غير تسجيل 👉 ${appURL()}`;
+  return `بدك دفتر ذكي للي عليك واللي ليك؟ «ذِمّتي» بيسجّل الديون، بيفكّرك بالمواعيد، وببلمسة بتوصل لواتساب — عربي بالكامل 👉 ${appURL()}`;
 }
 
 function shareTextPerson(p) {
   const amt = fmt(Math.abs(p.bal));
   const url = p.bal !== 0 ? inviteURL(p) : appURL();
   if (p.bal > 0) {
-    return `يا ${p.name}، تذكير لطيف: بذمتك عندي ${amt} 😊 والطلب مسجّل برابط — افتحه وسجّله بدقائق 👉 ${url}${signOff()}`;
+    return `يا ${p.name}، تذكير لطيف: بذمتك عندي ${amt} 😊${p.due ? ` (الموعد كان ${fmtDate(p.due)})` : ''} والطلب مسجّل برابط 👉 ${url}${signOff()}`;
   }
   if (p.bal < 0) {
     return `يا ${p.name}، بذمّتي عليك ${amt} 💸 ولسا بدي أسدّدلك — فتح الرابط بينزّل المبلغ بدفترك على طول 👉 ${url}${signOff()}`;
   }
-  return `يا ${p.name}، حساباتنا خلصت وتسديدنا تمام ✔ يلا سجّل أنت كمان بـ«ذِمّتي» 👉 ${url}${signOff()}`;
+  return `يا ${p.name}، ✅ تم انتهاء الدين وحساباتنا خلصت تمام — يلا سجّل أنت كمان بـ«ذِمّتي» 👉 ${url}${signOff()}`;
+}
+
+function shareTextRemind(p) {
+  const amt = fmt(Math.abs(p.bal));
+  return `يا ${p.name}، نسيت تسدّد الدين 😅 — ${amt}${p.due ? ` والموعد كان ${fmtDate(p.due)}` : ''}. تذكير لطيف من دفتر «ذِمّتي» 👉 ${p.bal > 0 ? inviteURL(p) : appURL()}${signOff()}`;
 }
 
 function shareTextSummary() {
   const t = totals();
-  const top = sortPeople(S.people).find((p) => p.bal > 0);
-  return `ملخّص دفترك بـ«ذِمّتي»: مستحق ليّا ${fmt(t.credit)} · مستحق منّي ${fmt(t.debt)} · الصافي ${fmt(t.net)}${top ? ` · وأكبر مدين: ${top.name}` : ''} — نظّم ذمّك وبذمّتك بدون تسجيل 👉 ${appURL()}${signOff()}`;
+  const top = sortPeople(S.people).find((q) => q.bal > 0);
+  let topCat = '';
+  const sums = {};
+  S.people.forEach((p) => { if (p.cat && p.bal > 0) sums[p.cat] = r2((sums[p.cat] || 0) + p.bal); });
+  const ent = Object.entries(sums).sort((a, b) => b[1] - a[1])[0];
+  if (ent) topCat = ` · أعلى تصنيف: ${ent[0]} ${fmt(ent[1])}`;
+  return `ملخّص دفترك بـ«ذِمّتي»: مستحق ليّا ${fmt(t.credit)} · مستحق منّي ${fmt(t.debt)} · الصافي ${fmt(t.net)}${top ? ` · وأكبر مدين: ${top.name}` : ''}${topCat} — نظّم ذمّك وبذمّتك 👉 ${appURL()}${signOff()}`;
 }
 
 function currentShareText() {
   if (shareCtx.type === 'person') {
     const p = findP(shareCtx.pid);
     if (p) return shareTextPerson(p);
+  }
+  if (shareCtx.type === 'remind') {
+    const p = findP(shareCtx.pid);
+    if (p) return shareTextRemind(p);
   }
   if (shareCtx.type === 'summary') return shareTextSummary();
   return shareTextApp();
@@ -456,8 +812,10 @@ function currentShareText() {
 function openShare(ctx) {
   shareCtx = ctx;
   const isPerson = ctx.type === 'person';
-  const p = isPerson ? findP(ctx.pid) : null;
+  const isRemind = ctx.type === 'remind';
+  const p = (isPerson || isRemind) ? findP(ctx.pid) : null;
   if (ctx.type === 'summary') $('#shareTitle').textContent = 'ملخّص ذمّتي';
+  else if (isRemind) $('#shareTitle').textContent = 'تذكير لـ' + (p ? p.name : '');
   else if (isPerson) $('#shareTitle').textContent = 'شارك مع ' + (p ? p.name : '');
   else $('#shareTitle').textContent = 'شارك ذِمّتي';
 
@@ -538,15 +896,14 @@ async function makeCard() {
     const top = sortPeople(S.people).find((q) => q.bal > 0);
     x.fillStyle = 'rgba(255,255,255,.85)';
     x.font = `700 42px ${F}`;
-    x.fillText('ملخّص ذمّتي', W / 2, 360);
-
+    x.fillText('ملخّص ذمّتي', W / 2, 356);
     const rows = [
       ['مستحق ليّا', fmt(t.credit), '#B9FFDD'],
       ['مستحق منّي', fmt(t.debt), '#FFC9D4'],
       ['الصافي', fmt(t.net), '#FFFFFF']
     ];
     rows.forEach((r, i) => {
-      const y = 452 + i * 96;
+      const y = 444 + i * 92;
       x.textAlign = 'right';
       x.fillStyle = 'rgba(255,255,255,.75)';
       x.font = `600 38px ${F}`;
@@ -556,36 +913,29 @@ async function makeCard() {
       x.font = `900 52px ${F}`;
       x.fillText(r[1], 150, y + 14);
     });
-
     x.textAlign = 'center';
     x.fillStyle = 'rgba(255,255,255,.85)';
     x.font = `600 34px ${F}`;
-    x.fillText(
-      top ? `وأكبر مدين: ${top.name}` : `${S.people.length} شخص بدفترك`,
-      W / 2, 738
-    );
+    x.fillText(top ? `وأكبر مدين: ${top.name}` : `${S.people.length} شخص بدفترك`, W / 2, 726);
     drawFooter(x, W, H);
     return new Promise((res) => c.toBlob(res, 'image/png'));
   }
 
   if (p) {
     const cls = balClass(p.bal);
-    const label = p.bal > 0 ? 'تذكير لطيف بالذمة' : p.bal < 0 ? 'ذمّتي عليك' : 'تسديد كامل — برافو!';
+    const label = p.bal > 0 ? 'تذكير لطيف بالذمة' : p.bal < 0 ? 'ذمّتي عليك' : 'تم انتهاء الدين — برافو!';
     x.fillStyle = 'rgba(255,255,255,.85)';
     x.font = `700 42px ${F}`;
     x.fillText(label, W / 2, 372);
-
     x.fillStyle = '#FFFFFF';
     x.font = `900 76px ${F}`;
     x.fillText(p.name, W / 2, 490);
-
     x.fillStyle = cls === 'neg' ? '#FFD3DC' : cls === 'pos' ? '#D6FFEC' : '#EAF3F1';
     x.font = `900 118px ${F}`;
     x.fillText(Math.abs(p.bal).toLocaleString('en-US') + ' ' + sym, W / 2, 638);
-
     x.fillStyle = 'rgba(255,255,255,.8)';
     x.font = `600 36px ${F}`;
-    x.fillText(balDir(p.bal), W / 2, 718);
+    x.fillText(p.bal === 0 ? 'مسدّد بالكامل ✔' : balDir(p.bal), W / 2, 718);
   } else {
     x.fillStyle = 'rgba(255,255,255,.85)';
     x.font = `700 44px ${F}`;
@@ -598,9 +948,8 @@ async function makeCard() {
     x.fillText('دفتر الديون اللي ما بينسى', W / 2, 626);
     x.fillStyle = 'rgba(255,255,255,.7)';
     x.font = `500 34px ${F}`;
-    x.fillText('عربي · بدون تسجيل · بياناتك عندك', W / 2, 700);
+    x.fillText('عربي · مواعيد · تصنيفات · بياناتك عندك', W / 2, 700);
   }
-
   drawFooter(x, W, H);
   return new Promise((res) => c.toBlob(res, 'image/png'));
 }
@@ -611,7 +960,7 @@ async function shareCard() {
     const file = new File([blob], 'dhimmati.png', { type: 'image/png' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try { await navigator.share({ files: [file], title: 'ذِمّتي' }); }
-      catch (e) { /* ألغى المستخدم */ }
+      catch (e) { /* ألغى */ }
     } else {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -649,16 +998,15 @@ function dl(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
-/* ─── رابط الطلب الموجّه: الاستقبال ─── */
+/* ─── رابط الطلب ─── */
 function cleanURL() {
-  try { history.replaceState(null, '', location.pathname); } catch (e) { /* file:// */ }
+  try { history.replaceState(null, '', location.pathname); } catch (e) { /* */ }
 }
 
 function handleInvite() {
   let q;
   try { q = new URLSearchParams(location.search); } catch (e) { return; }
   if (q.get('req') !== '1') return;
-
   const seenKey = 'dhimmati.req:' + location.search;
   if (sessionStorage.getItem(seenKey)) { cleanURL(); return; }
   sessionStorage.setItem(seenKey, '1');
@@ -666,10 +1014,9 @@ function handleInvite() {
   const sender = (q.get('s') || '').trim() || 'الطرف الآخر';
   const amount = parseAmt(q.get('a'));
   const origDir = q.get('d') === 'debit' ? 'debit' : 'credit';
-  const recDir = origDir === 'credit' ? 'debit' : 'credit'; // المعكوس لطرف الآخر
+  const recDir = origDir === 'credit' ? 'debit' : 'credit';
   const note = (q.get('note') || '').trim();
   const toName = (q.get('n') || '').trim();
-
   if (!amount) { cleanURL(); return; }
 
   pendingInvite = { sender, amount, recDir, note };
@@ -718,6 +1065,18 @@ function syncSettingsUI() {
   $('#myName').value = S.myName || '';
 }
 
+function renderCatManage() {
+  const box = $('#catManage');
+  const cats = allCats();
+  box.innerHTML = cats.length
+    ? cats.map((c) => `
+        <div class="cat-manage-row">
+          <span>🏷 ${esc(c)}</span>
+          <button type="button" class="cat-del" data-catdel="${esc(c)}" title="حذف">✕</button>
+        </div>`).join('')
+    : '<div class="log-empty">ما في تصنيفات — أضف واحدًا تحت.</div>';
+}
+
 function exportData() {
   const blob = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' });
   dl(blob, `dhimmati-backup-${ymd()}.json`);
@@ -737,6 +1096,7 @@ function importData(file) {
       applyTheme();
       render();
       syncSettingsUI();
+      renderCatManage();
       toast('انتست النسخة ✔');
     } catch (e) {
       toast('ملف غير صالح');
@@ -748,12 +1108,17 @@ function importData(file) {
 function addSample() {
   const now = Date.now();
   const rows = [
-    { name: 'سامي', note: 'قرض العرس', dir: 'credit', amount: 750, d: 6 },
-    { name: 'عمّي بشار', note: 'سلفة', dir: 'debit', amount: 300, d: 4 },
-    { name: 'محمود', note: 'نص تلفون', dir: 'credit', amount: 450, d: 2 }
+    { name: 'سامي', note: 'قرض العرس', cat: 'البيت', dir: 'credit', amount: 750, d: 6, due: -2 },
+    { name: 'عمّي بشار', note: 'سلفة', cat: 'الدكان', dir: 'debit', amount: 300, d: 4, due: 0 },
+    { name: 'محمود', note: 'نص تلفون', cat: '', dir: 'credit', amount: 450, d: 2, due: 5 }
   ];
   rows.forEach((r) => {
-    const p = { id: uid(), name: r.name, note: r.note, created: now - r.d * 864e5, bal: r.dir === 'credit' ? r.amount : -r.amount };
+    const p = {
+      id: uid(), name: r.name, note: r.note, cat: r.cat,
+      due: r.due ? now + r.due * 864e5 : 0,
+      created: now - r.d * 864e5,
+      bal: r.dir === 'credit' ? r.amount : -r.amount
+    };
     S.people.push(p);
     S.log.push({ id: uid(), pid: p.id, kind: 'add', amount: r.amount, dir: r.dir, date: now - r.d * 864e5 });
   });
@@ -769,13 +1134,46 @@ function wire() {
   $$('[data-goto]').forEach((b) => b.addEventListener('click', () => showView(b.dataset.goto)));
   $('#btnAdd').addEventListener('click', () => openPersonForm());
   $('#btnFirstAdd').addEventListener('click', () => openPersonForm());
+  $('#overdueStrip').addEventListener('click', () => {
+    curFilter = 'overdue';
+    $$('#filters .chip').forEach((x) => x.classList.toggle('active', x.dataset.filter === 'overdue'));
+    renderPeopleView();
+    showView('people');
+  });
 
-  // فتح أي شخص من أي قائمة
+  // فتح شخص / إغلاق / عناصر ديناميكية
   document.addEventListener('click', (e) => {
     const li = e.target.closest('.li[data-id]');
-    if (li) openDetail(li.dataset.id);
-    const closeBtn = e.target.closest('[data-close]');
-    if (closeBtn) closeTop();
+    if (li) { openDetail(li.dataset.id); return; }
+    if (e.target.closest('[data-close]')) { closeTop(); return; }
+    if (e.target.closest('#btnOpenLogin')) { $('#loginToken').value = ''; openSheet($('#sheetLogin')); setTimeout(() => $('#loginToken').focus(), 350); return; }
+    if (e.target.closest('#btnLogout')) { doLogout(); return; }
+    const catDel = e.target.closest('[data-catdel]');
+    if (catDel) {
+      const c = catDel.dataset.catdel;
+      S.cats = (S.cats || []).filter((x) => x !== c);
+      save(); renderCatManage(); renderCatFilter();
+      toast('انحذف التصنيف (الأشخاص يضلّوا عليه)');
+      return;
+    }
+    const fcat = e.target.closest('#catFilter [data-cat]');
+    if (fcat) {
+      curCat = fcat.dataset.cat;
+      renderCatFilter();
+      renderPeopleView();
+      return;
+    }
+    const pcat = e.target.closest('#catChips .cat-chip');
+    if (pcat) {
+      if (pcat.id === 'catAddBtn') {
+        $('#quickCatRow').hidden = !$('#quickCatRow').hidden;
+        if (!$('#quickCatRow').hidden) setTimeout(() => $('#quickCatName').focus(), 60);
+      } else {
+        formCat = formCat === pcat.dataset.cat ? '' : pcat.dataset.cat;
+        renderCatPicker();
+      }
+      return;
+    }
   });
 
   // المظهر
@@ -787,7 +1185,7 @@ function wire() {
     syncSettingsUI();
   });
   $$('#themeSeg .seg-btn').forEach((b) =>
-    b.addEventListener('click', () => { S.theme = b.dataset.tv; save(); applyTheme(); }));
+    b.addEventListener('click', () => { S.theme = b.dataset.tv; save(false); applyTheme(); }));
 
   // البحث والفِلترات
   $('#search').addEventListener('input', renderPeopleView);
@@ -810,9 +1208,25 @@ function wire() {
     const name = $('#pName').value.trim();
     if (!name) { toast('اكتب الاسم أولًا'); $('#pName').focus(); return; }
 
+    // تصنيف سريع جديد
+    const quick = $('#quickCatName').value.trim();
+    if (quick) {
+      formCat = quick;
+      if (!S.cats.includes(quick)) S.cats.push(quick);
+    }
+    const due = dueTs($('#pDue').value);
+    if (due) ensureNotifPerm();
+
     if (editingId) {
       const p = findP(editingId);
-      if (p) { p.name = name; p.note = $('#pNote').value.trim(); save(); render(); }
+      if (p) {
+        p.name = name;
+        p.note = $('#pNote').value.trim();
+        p.cat = formCat;
+        p.due = due;
+        save();
+        render();
+      }
       closeTop();
       if (sheetStack.includes($('#sheetDetail'))) renderDetail();
       toast('انحفظ ✔');
@@ -821,12 +1235,12 @@ function wire() {
 
     const amount = parseAmt($('#pAmount').value);
     if (!amount) { toast('اكتب مبلغًا صحيحًا'); $('#pAmount').focus(); return; }
-    addPerson({ name, dir: formDir, amount, note: $('#pNote').value });
+    addPerson({ name, dir: formDir, amount, note: $('#pNote').value, cat: formCat, due });
     closeTop();
     toast('انضاف ✔');
   });
 
-  // تفاصيل — أزرار
+  // التفاصيل
   $('#detailBody').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-act]');
     if (!btn) return;
@@ -837,13 +1251,24 @@ function wire() {
     if (act === 'pay') openPaySheet('pay');
     else if (act === 'debt') openPaySheet('debt');
     else if (act === 'share') openShare({ type: 'person', pid: p.id });
+    else if (act === 'remind') openShare({ type: 'remind', pid: p.id });
+    else if (act === 'due') openDueSheet();
     else if (act === 'edit') openPersonForm(p);
     else if (act === 'settle') {
       const ok = await confirmBox(`تسديد كامل بمبلغ ${fmt(Math.abs(p.bal))}؟`, 'تسديد');
-      if (ok) { settle(p.id); renderDetail(); toast('تسدّد بالكامل 🎉'); }
+      if (ok) {
+        const hadDue = !!p.due;
+        settle(p.id);
+        renderDetail();
+        toast('تسدّد بالكامل 🎉');
+        if (hadDue) {
+          const ask = await confirmBox('ابعت إشعار «تم انتهاء الدين» للطرف الآخر؟', 'ابعت');
+          if (ask) setTimeout(() => openShare({ type: 'person', pid: p.id }), 350);
+        }
+      }
     } else if (act === 'del') {
-      const ok = await confirmBox(`حذف «${p.name}» وسجله نهائيًا؟`, 'حذف');
-      if (ok) { deletePerson(p.id); closeTop(); toast('انحذف'); }
+      const ok = await confirmBox(`حذف «${p.name}» وسجله نهائيًا؟ (في تراجع لـ7 ثواني)`, 'حذف');
+      if (ok) { deletePerson(p.id); closeTop(); }
     } else if (act === 'close') closeTop();
   });
 
@@ -860,10 +1285,11 @@ function wire() {
     if (!amount) { toast('اكتب مبلغًا صحيحًا'); $('#payAmount').focus(); return; }
     const p = findP(currentPid);
     if (!p) return;
+    const note = $('#payNote').value.trim();
 
     if (payMode === 'pay') {
       if (amount > Math.abs(p.bal)) { toast('المبلغ أكبر من الرصيد — استخدم «تسديد كامل»'); return; }
-      applyPay(p.id, amount);
+      applyPay(p.id, amount, note);
       toast('سُجّلت الدفعة ✔');
     } else {
       const dir = p.bal !== 0 ? (p.bal > 0 ? 'credit' : 'debit') : payDir;
@@ -872,6 +1298,30 @@ function wire() {
     }
     closeTop();
     renderDetail();
+  });
+
+  // ورقة الموعد
+  $('#formDue').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const p = findP(currentPid);
+    if (!p) return;
+    p.due = dueTs($('#dueDate').value);
+    if (p.due) ensureNotifPerm();
+    save();
+    closeTop();
+    renderDetail();
+    render();
+    toast(p.due ? 'انحفظ الموعد ✔' : 'انشال الموعد');
+  });
+  $('#dueClear').addEventListener('click', () => {
+    const p = findP(currentPid);
+    if (!p) return;
+    p.due = 0;
+    save();
+    closeTop();
+    renderDetail();
+    render();
+    toast('انشال الموعد');
   });
 
   // المشاركة
@@ -889,10 +1339,10 @@ function wire() {
   });
   $('#shNative').addEventListener('click', async () => {
     try { await navigator.share({ title: 'ذِمّتي', text: currentShareText() }); }
-    catch (e) { /* ألغى المستخدم */ }
+    catch (e) { /* ألغى */ }
   });
 
-  // رابط الطلب الموجّه — الاستقبال
+  // الدعوة
   $('#btnInviteAccept').addEventListener('click', acceptInvite);
   $('#btnInviteLater').addEventListener('click', () => {
     pendingInvite = null;
@@ -900,7 +1350,19 @@ function wire() {
     toast('تمام — الدفتر مفتوح قدامك');
   });
 
-  // تثبيت التطبيق
+  // الدخول
+  $('#btnLogin').addEventListener('click', () => doLogin($('#loginToken').value));
+  $('#loginToken').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin($('#loginToken').value); });
+
+  // التنبيهات
+  $('#btnNotify').addEventListener('click', () => {
+    if (!('Notification' in window)) { toast('متصفحك ما بيدعم التنبيهات'); return; }
+    if (Notification.permission === 'granted') { toast('التنبيهات مفعّلة ✔'); return; }
+    if (Notification.permission === 'denied') { toast('ممنوعة — فعّلها من إعدادات المتصفح'); return; }
+    Notification.requestPermission().then(() => { renderAccount(); toast('تم ✔'); }).catch(() => {});
+  });
+
+  // التثبيت
   $('#btnInstall').addEventListener('click', async () => {
     if (!deferredPrompt) return;
     deferredPrompt.prompt();
@@ -924,6 +1386,16 @@ function wire() {
     S.myName = e.target.value.trim();
     save();
   });
+  $('#btnAddCat').addEventListener('click', () => {
+    const v = $('#newCatName').value.trim();
+    if (!v) { toast('اكتب اسم التصنيف'); return; }
+    if (!S.cats.includes(v)) S.cats.push(v);
+    $('#newCatName').value = '';
+    save();
+    renderCatManage();
+    renderCatFilter();
+    toast('انضاف التصنيف ✔');
+  });
   $('#btnExport').addEventListener('click', exportData);
   $('#btnImport').addEventListener('click', () => $('#fileImport').click());
   $('#fileImport').addEventListener('change', (e) => {
@@ -938,7 +1410,7 @@ function wire() {
     addSample();
   });
   $('#btnClear').addEventListener('click', async () => {
-    const ok = await confirmBox('راح تروح كل البيانات نهائيًا. نسخة احتياطية؟', 'تفريغ');
+    const ok = await confirmBox('راح تروح كل البيانات محليًا. نسخة احتياطية؟', 'تفريغ');
     if (!ok) return;
     const keepCur = S.currency, keepTheme = S.theme, keepName = S.myName;
     S = defaults();
@@ -958,10 +1430,14 @@ function wire() {
       closeTop();
     }
   });
+
+  window.addEventListener('online', () => {
+    if (sess && (syncState === 'error' || syncQueued)) runSync();
+  });
 }
 
 /* ─── الإقلاع ─── */
-function init() {
+async function init() {
   const cs = $('#currencySel');
   cs.innerHTML = Object.entries(CUR)
     .map(([k, v]) => `<option value="${k}">${v.label} (${v.sym})</option>`)
@@ -971,7 +1447,35 @@ function init() {
   wire();
   wireInstall();
   render();
+  renderCatManage();
+  renderAccount();
   handleInvite();
+  scheduleDueChecks();
+
+  // استرجاع سحابي عند وجود جلسة وبيانات محلية فاضية
+  if (sess) {
+    if (S.people.length === 0) {
+      try {
+        const remote = await pullRemote();
+        if (remote && Array.isArray(remote.people) && remote.people.length) {
+          S = Object.assign(defaults(), remote);
+          save(false);
+          applyTheme(); syncSettingsUI(); render(); renderCatManage();
+          toast(`رجّعنا ${S.people.length} شخص من السحابة ✔`);
+        } else {
+          scheduleSync();
+        }
+        lastSyncAt = Date.now();
+        syncState = 'ok';
+      } catch (e) {
+        syncState = 'error';
+        syncErr = e.message || '';
+      }
+      renderAccount();
+    } else {
+      scheduleSync();
+    }
+  }
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
