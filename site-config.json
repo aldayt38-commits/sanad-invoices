@@ -1,7 +1,6 @@
 {
-  "announce": {
-    "on": false,
-    "text": ""
-  },
-  "updated": "2026-10-28"
+  "announce": { "on": false, "text": "" },
+  "adminHash": "de61351a9ce3e584360c6869074e3f588ac20451c4a9ceb0f3ea3c6852e28c8f",
+  "adminVault": "v1.dafN7XP6Td1dUwcA.njK/lsoKNGEi3LAuG+fnnwL5vVsdgXlH1ghBkNAYyokb2MA9v+jBUjs00kRRGp97h6ogX4navhA=",
+  "googleClientId": ""
 }

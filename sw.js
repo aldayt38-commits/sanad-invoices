@@ -1,5 +1,5 @@
 /* ذِمّتي — Service Worker : يعمل بدون إنترنت */
-const CACHE = 'dhimmati-v1.2.1';
+const CACHE = 'dhimmati-v1.2.2';
 const CORE = [
   './',
   './index.html',

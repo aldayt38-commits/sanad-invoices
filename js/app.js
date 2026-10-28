@@ -198,6 +198,7 @@ function persistSession(x) {
 
 async function gh(path, opts = {}) {
   if (!sess) throw new Error('غير مسجّل الدخول');
+  if (sess.provider === 'google') throw new Error('حساب جوجل — المزامنة عبر جوجل درايف');
   const res = await fetch('https://api.github.com' + path, {
     method: opts.method || 'GET',
     headers: Object.assign({
@@ -210,7 +211,10 @@ async function gh(path, opts = {}) {
   if (!res.ok) {
     let msg = '';
     try { msg = (await res.json()).message || ''; } catch (e) { /* */ }
-    throw new Error(res.status === 401 ? 'التوكن غير صالح أو منتهي' : 'GitHub: ' + res.status + ' ' + msg);
+    throw new Error(res.status === 401 ? 'التوكن غير صالح أو منتهي'
+      : (res.status === 404 && path.indexOf('/gists') === 0)
+        ? 'توتك بلا نطاق gist — أنشئ توكنًا جديدًا فيه صلاحية gist وسجّل دخول من جديد'
+        : 'GitHub: ' + res.status + ' ' + msg);
   }
   return res.status === 204 ? null : res.json();
 }
@@ -222,6 +226,7 @@ async function findGistId() {
 }
 
 async function pullRemote() {
+  if (sess.provider === 'google') return googleLoad();
   if (!sess.gistId) sess.gistId = await findGistId();
   if (!sess.gistId) { persistSession(sess); return null; }
   const g = await gh('/gists/' + sess.gistId);
@@ -242,6 +247,127 @@ async function pushRemote(data, extraFiles) {
   }
 }
 
+/* ═══════════════════════════════════════════
+   جوجل: دخول GIS + نسخة على جوجل درايف (بلا توكنات)
+   ═══════════════════════════════════════════ */
+let GIS = null, gTok = null, gExp = 0, gCfgId = '';
+const GD_FILE = 'dhimmati-backup.json';
+try {
+  const g = JSON.parse(sessionStorage.getItem('dhimmati.gtok') || 'null');
+  if (g && g.t && g.e > Date.now()) { gTok = g.t; gExp = g.e; }
+} catch (e) { /* */ }
+function loadGis() {
+  return new Promise((resolve) => {
+    if (window.google && window.google.accounts) return resolve();
+    if (GIS) return; // قيد التحميل
+    GIS = document.createElement('script');
+    GIS.src = 'https://accounts.google.com/gsi/client';
+    GIS.async = true; GIS.defer = true;
+    GIS.onload = resolve;
+    GIS.onerror = () => { GIS = null; toast('تعذّر تحميل خدمة جوجل — تأكد من الإنترنت'); resolve(); };
+    document.head.appendChild(GIS);
+  });
+}
+async function ensureGToken() {
+  if (gTok && Date.now() < gExp - 60000) return;
+  if (!gCfgId) throw new Error('دخول جوجل غير مفعّل بعد');
+  await loadGis();
+  if (!window.google || !google.accounts) throw new Error('خدمة جوجل غير متاحة');
+  await new Promise((resolve, reject) => {
+    const tc = google.accounts.oauth2.initTokenClient({
+      client_id: gCfgId,
+      scope: 'openid email profile https://www.googleapis.com/auth/drive.file',
+      callback: (r) => {
+        if (r && r.access_token) {
+          gTok = r.access_token;
+          gExp = Date.now() + ((r.expires_in || 3600) * 1000);
+          try { sessionStorage.setItem('dhimmati.gtok', JSON.stringify({ t: gTok, e: gExp })); } catch (e) { /* */ }
+          resolve();
+        } else reject(new Error('رفضت جوجل الاتصال' + (r && r.error ? ': ' + r.error : '')));
+      },
+      error_callback: (e) => reject(new Error('تعذّر الدخول بجوجل' + (e && e.message ? ': ' + e.message : '')))
+    });
+    tc.requestAccessToken();
+  });
+}
+async function gDriveJson(url, opt = {}) {
+  await ensureGToken();
+  const r = await fetch(url, Object.assign({}, opt, {
+    headers: Object.assign({ 'Authorization': 'Bearer ' + gTok }, opt.headers || {})
+  }));
+  return r;
+}
+async function gFind() {
+  const q = encodeURIComponent("name='" + GD_FILE + "' and trashed=false");
+  const r = await gDriveJson('https://www.googleapis.com/drive/v3/files?q=' + q + '&fields=files(id,modifiedTime)');
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error('درایف: ' + ((j.error && j.error.message) || r.status));
+  return (j.files && j.files[0]) || null;
+}
+async function googleLoad() {
+  try {
+    const f = await gFind();
+    if (!f) return null;
+    const r = await gDriveJson('https://www.googleapis.com/drive/v3/files/' + f.id + '?alt=media');
+    if (!r.ok) return null;
+    return await r.json().catch(() => null);
+  } catch (e) { return null; }
+}
+async function googleSave(data) {
+  const content = JSON.stringify(data);
+  const f = await gFind();
+  if (!f) {
+    const b = 'zd' + Date.now();
+    const meta = JSON.stringify({ name: GD_FILE, mimeType: 'application/json' });
+    const body = '--' + b + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + meta +
+      '\r\n--' + b + '\r\nContent-Type: application/json\r\n\r\n' + content + '\r\n--' + b + '--';
+    const r = await gDriveJson('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST', headers: { 'Content-Type': 'multipart/related; boundary=' + b }, body
+    });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error('درایف: ' + ((j.error && j.error.message) || r.status)); }
+  } else {
+    const r = await gDriveJson('https://www.googleapis.com/upload/drive/v3/files/' + f.id + '?uploadType=media', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: content
+    });
+    if (!r.ok) throw new Error('درایف: حفظ فشل (' + r.status + ')');
+  }
+}
+async function doGoogleLogin() {
+  const btn = $('#btnGoogle');
+  if (btn) { btn.disabled = true; btn.textContent = 'جارٍ الاتصال بجوجل…'; }
+  try {
+    await ensureGToken();
+    const ur = await gDriveJson('https://www.googleapis.com/oauth2/v3/userinfo');
+    const u = await ur.json().catch(() => ({}));
+    const who = u.email || u.name || 'حسابك';
+    sess = { provider: 'google', login: who, token: null, gistId: null };
+    persistSession(sess);
+    const remote = await googleLoad();
+    if (remote && Array.isArray(remote.people) && remote.people.length) {
+      const hadLocal = S.people.length > 0;
+      if (!hadLocal) {
+        S = Object.assign(defaults(), remote);
+        save(false);
+        applyTheme(); syncSettingsUI(); render();
+        toast(`أهلاً ${who} — رجّعنا ${S.people.length} شخص من جوجل درايف ✔`);
+      } else {
+        try { await googleSave(S); } catch (e) { /* */ }
+        toast(`أهلاً ${who} — محليتك هي الأساس وانرفعت لجوجل درايف ✔`);
+      }
+    } else {
+      try { await googleSave(S); } catch (e) { /* */ }
+      toast(`أهلاً ${who} — ديونك بتنحفظ على جوجل درايف ✔`);
+    }
+    lastSyncAt = Date.now(); syncState = 'ok'; syncErr = '';
+    closeTop();
+    renderAccount();
+  } catch (e) {
+    toast(e.message || 'فشل الدخول بجوجل');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = 'دخول بحساب جوجل'; }
+  }
+}
+
 function scheduleSync() {
   if (!sess) return;
   clearTimeout(syncTimer);
@@ -255,7 +381,8 @@ async function runSync() {
   syncState = 'syncing';
   renderAccount();
   try {
-    await pushRemote(S);
+    if (sess.provider === 'google') await googleSave(S);
+    else await pushRemote(S);
     lastSyncAt = Date.now();
     syncState = 'ok';
     syncErr = '';
@@ -1388,10 +1515,12 @@ function wire() {
     $('#announceBar').classList.add('hidden');
     try { sessionStorage.setItem('dhimmati.ann', '1'); } catch (e) { /* */ }
   });
-  // شريط الإعلان العام (site-config.json من لوحة الإدارة)
+  $('#btnGoogle').addEventListener('click', doGoogleLogin);
+  // إعدادات الموقع العامة (إعلان + توكن جوجل) من لوحة الإدارة
   fetch('site-config.json?t=' + Date.now(), { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null))
     .then((cfg) => {
+      if (cfg && cfg.googleClientId) { gCfgId = cfg.googleClientId; $('#googleLogin').hidden = false; }
       const a = cfg && cfg.announce;
       let dismissed = false;
       try { dismissed = sessionStorage.getItem('dhimmati.ann') === '1'; } catch (e) { /* */ }

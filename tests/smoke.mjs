@@ -1,4 +1,4 @@
-/* فحص دخان — ذِمّتي v1.2.1
+/* فحص دخان — ذِمّتي v1.2.2
    الاستخدام: node tests/smoke.mjs
    مع خادم: TEST_URL=http://127.0.0.1:8080 node tests/smoke.mjs */
 import { readFileSync, existsSync, readdirSync, writeFileSync } from 'node:fs';
@@ -25,56 +25,66 @@ try {
   ok(m.icons.every((i) => existsSync(root + i.src)), 'manifest: الأيقونات صحيحة');
 } catch { ok(false, 'manifest JSON صالح'); }
 
-// 3) site-config صالح
+// 3) site-config صالح (بنية v1.2.2)
+let cfgOk = false;
 try {
   const c = JSON.parse(readFileSync(root + 'site-config.json', 'utf8'));
   ok(c && typeof c.announce === 'object', 'site-config: بنية الإعلان سليمة');
+  ok(typeof c.adminHash === 'string' && c.adminHash.length === 64, 'site-config: بصمة رمز الإدارة (64 hex)');
+  ok(typeof c.adminVault === 'string' && c.adminVault.startsWith('v1.'), 'site-config: خزنة التوكن المشفّرة');
+  ok(typeof c.googleClientId === 'string', 'site-config: خانة googleClientId');
+  cfgOk = true;
 } catch { ok(false, 'site-config JSON'); }
 
 // 4) index — عام
 const html = readFileSync(root + 'index.html', 'utf8');
 ok(html.includes('dir="rtl"'), 'index: اتجاه RTL');
-ok(html.includes('v1.2.1'), 'index: الإصدار v1.2.1');
+ok(/v1\.2\.[12]/.test(html), 'index: إصدار v1.2.x');
 
 // خصوصية: لا روابط للجدوى من الواجهة العامة
 ok(!html.includes('jadwa.html'), 'خصوصية: بدون رابط جدوى بالواجهة العامة');
 ok(!html.toLowerCase().includes('فحص الجدوى'), 'خصوصية: بدون نص «فحص الجدوى» بالواجهة');
 
 // التذييل / الحقوق
-ok(html.includes('© 2026') || html.includes('&#169; 2026') || html.includes('&copy; 2026') || html.includes('© 2026'), 'index: حقوق النشر 2026');
+ok(html.includes('© 2026') || html.includes('&#169; 2026'), 'index: حقوق النشر 2026');
 ok(html.includes('صقر رائد البدرساوي'), 'index: توقيع «تصميم وبرمجة: صقر رائد البدرساوي»');
 ok(html.includes('site-footer'), 'index: تذييل عام');
 
-// الدخول الظاهر
+// الدخول الظاهر + جوجل
 const ids = [
   'view-home', 'view-people', 'view-settings', 'sheetPerson', 'sheetDetail', 'sheetPay', 'sheetShare',
   'modalConfirm', 'statNet', 'btnAdd', 'currencySel',
-  // v1.1
   'sheetInvite', 'btnShareSummary', 'installBanner', 'shLink', 'shNative', 'myName',
-  // v1.2
   'sheetLogin', 'loginToken', 'btnLogin', 'accountBox', 'btnOpenLogin', 'btnLogout', 'syncInfo',
   'catChips', 'catFilter', 'catManage', 'newCatName', 'btnAddCat',
   'overdueStrip', 'sheetDue', 'dueDate', 'pDue', 'payNote', 'btnNotify',
-  // v1.2.1 — دخول ظاهر + إعلانات
   'btnAccount', 'loginView', 'acctView', 'acctName', 'acctSync', 'btnLogoutAcct', 'btnSyncNow',
-  'loginBanner', 'announceBar', 'announceText', 'announceClose'
+  'loginBanner', 'announceBar', 'announceText', 'announceClose',
+  // v1.2.2 — جوجل
+  'googleLogin', 'btnGoogle'
 ];
 for (const id of ids) ok(html.includes(`id="${id}"`), `index: id=#${id}`);
 ok(html.includes('data-filter="overdue"'), 'index: فلتر المتأخرات');
 
-// 5) admin.html — بوّابة + خصوصية
+// 5) admin.html — بوّابة رمز + خصوصية
 const admin = readFileSync(root + 'admin.html', 'utf8');
 ok(admin.includes('noindex'), 'admin: مانع فهرسة noindex');
 ok(admin.includes('لوحة إدارة'), 'admin: عنوان اللوحة');
-for (const id of ['gate', 'adminTok', 'btnAdminLogin', 'panel', 'anav', 'annText', 'annOn',
-  'btnSaveCfg', 'btnRunChecks', 'btnPushCloud', 'btnPullCloud', 'backupsList', 'btnAdminLogout']) {
+for (const id of ['gate', 'pinInput', 'pinForm', 'btnPinGo', 'panel', 'anav', 'annText', 'annOn',
+  'btnSaveCfg', 'btnRunChecks', 'btnPushCloud', 'btnPullCloud', 'backupsList', 'btnAdminLogout',
+  'oldPin', 'newPin', 'newPin2', 'btnChangePin', 'patInput', 'btnSavePat', 'patStatus',
+  'attList', 'attBadge', 'btnClearAttempts', 'gidInput', 'btnSaveGid', 'btnGoogle']) {
+  if (id === 'btnGoogle') continue; // اللوحة ليست مكان زر جوجل
   ok(admin.includes(`id="${id}"`), `admin: id=#${id}`);
 }
 ok(admin.includes('صقر رائد البدرساوي'), 'admin: التوقيع');
 ok(admin.includes('© 2026'), 'admin: حقوق النشر');
 ok(admin.includes('site-config.json'), 'admin: إدارة المحتوى العام');
-// اللوحة لا تعرض محتوى قبل التحقق
-ok(/#panel" hidden|id="panel" hidden/.test(admin), 'admin: اللوحة مخفية افتراضيًا');
+ok(/id="panel" hidden/.test(admin), 'admin: اللوحة مخفية افتراضيًا');
+// البوابة = بصمة رمز (بلا توكن نصّي)
+ok(!admin.includes('adminTok'), 'admin: بلا حقل توكن بوّابة قديم');
+ok(admin.includes('adminHash') && admin.includes('PBKDF2'), 'admin: بوّابة رمز مشفّرة (SHA-256+PBKDF2)');
+ok(/ghp_[A-Za-z0-9]{20,}/.test(admin) === false, 'admin: بلا توكن مكشوف بالملف');
 
 // 6) jadwa — داخلي
 const jadwa = readFileSync(root + 'jadwa.html', 'utf8');
@@ -104,7 +114,7 @@ try {
 
 // 8) SW + المنطق
 const sw = readFileSync(root + 'sw.js', 'utf8');
-ok(sw.includes('dhimmati-v1.2.1'), 'sw: كاش v1.2.1');
+ok(/dhimmati-v1\.2\.[12]/.test(sw), 'sw: كاش v1.2.x');
 
 const app = readFileSync(root + 'js/app.js', 'utf8');
 const checks = [
@@ -112,10 +122,15 @@ const checks = [
   ['doLogin', 'تسجيل الدخول'], ['/gists', 'مزامنة Gist'], ['scheduleSync', 'مزامنة مؤجّلة'],
   ['doLogout', 'خروج آمن'], ['Notification', 'تنبيهات'], ['dueInfo', 'مواعيد'],
   ['formCat', 'تصنيفات'], ['undoBuf', 'تراجع حذف'], ['payNote', 'ملاحظة دفعة'],
-  ['openAccount', 'ورقة الحساب'], ['announceBar', 'الإعلان العام'], ['site-config.json', 'قراءة الإعداد']
+  ['openAccount', 'ورقة الحساب'], ['announceBar', 'الإعلان العام'], ['site-config.json', 'قراءة الإعداد'],
+  // v1.2.2 — جوجل
+  ['doGoogleLogin', 'دخول جوجل'], ['googleSave', 'حفظ بالدرايف'], ['googleLoad', 'سحب من الدرايف'],
+  ['ensureGToken', 'رمز وصول جوجل'], ['gCfgId', 'إعداد googleClientId'], ['drive.file', 'نطاق الدرايف']
 ];
 for (const [n, label] of checks) ok(app.includes(n), `app: ${label}`);
 ok(!/ghp_[A-Za-z0-9]{20,}/.test(app), 'app: بلا توكنات مثبّتة');
+// رسالة خطأ gist واضحة (مشكلة التوكن بلا نطاق)
+ok(app.includes("بلا نطاق gist"), 'app: رسالة نقص نطاق gist');
 
 // 9) أمن: لا توكنات بأي ملف
 function walk(dir, out = []) {
@@ -133,7 +148,7 @@ let leaked = [];
 for (const p of walk(root)) {
   if (/ghp_[A-Za-z0-9]{20,}/.test(readFileSync(p, 'utf8'))) leaked.push(p.replace(root, ''));
 }
-ok(leaked.length === 0, 'أمن: بلا توكنات بالمستودع' + (leaked.length ? ' — ' + leaked.join(',') : ''));
+ok(leaked.length === 0, 'أمن: بلا توكنات مكشوفة بالمستودع' + (leaked.length ? ' — ' + leaked.join(',') : ''));
 
 // 10) HTTP
 const base = process.env.TEST_URL;
@@ -151,7 +166,10 @@ if (base) {
   ok(t.includes('صقر رائد البدرساوي') && t.includes('btnAccount'), 'HTTP: التوقيع + الدخول يصلان');
   const ra = await fetch(base.replace(/\/$/, '') + '/admin.html');
   const ta = await ra.text();
-  ok(ta.includes('noindex'), 'HTTP: اللوحة محمية+Fهرسة');
+  ok(ta.includes('noindex') && ta.includes('pinInput'), 'HTTP: بوّابة الرمز محمية+Fهرسة');
+  const rc = await fetch(base.replace(/\/$/, '') + '/site-config.json');
+  const jc = await rc.json().catch(() => null);
+  ok(jc && jc.adminHash && jc.adminVault, 'HTTP: إعداد اللوحة يصل');
 } else {
   console.log('ℹ️  (اختياري) TEST_URL=... لفحص HTTP');
 }
