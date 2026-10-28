@@ -904,6 +904,60 @@ html[data-theme="dark"] .due-chip.soon { color: var(--gold); }
 .toast { pointer-events: none; }
 .toast .t-act { pointer-events: auto; }
 
+/* ─── v1.2.1: الحساب الظاهر + الإعلانات + التذييل ─── */
+.site-footer {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--muted);
+  padding: 18px 8px 6px;
+  border-top: 1px solid var(--line);
+  margin-top: 24px;
+  line-height: 1.8;
+}
+.site-footer b { color: var(--text); font-weight: 800; }
+
+.announce {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, var(--gold-soft), transparent 80%), var(--surface);
+  border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  font-size: 13.5px;
+  font-weight: 700;
+  animation: fadeUp .35s ease both;
+}
+.announce span:nth-child(2) { flex: 1; }
+.ann-ic { font-size: 19px; }
+
+.login-banner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  background: linear-gradient(135deg, var(--brand-soft), transparent 85%), var(--surface);
+  border: 1px solid color-mix(in srgb, var(--brand) 40%, transparent);
+  border-radius: var(--r);
+  padding: 13px 14px;
+  margin-bottom: 12px;
+  text-align: start;
+  animation: fadeUp .35s ease both;
+}
+.login-banner .ib-text { flex: 1; display: flex; flex-direction: column; line-height: 1.4; }
+.login-banner b { font-size: 13.5px; }
+.login-banner small { font-size: 11.5px; color: var(--muted); }
+.lb-go {
+  font-size: 12.5px;
+  font-weight: 900;
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand-2), var(--brand));
+  padding: 7px 16px;
+  border-radius: 999px;
+}
+.login-banner:active { transform: scale(.985); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

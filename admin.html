@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>لوحة الإدارة — ذِمّتي</title>
+  <meta name="theme-color" content="#0F766E">
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    body { min-height: 100dvh; display: flex; flex-direction: column; }
+    .wrap { max-width: 940px; width: 100%; margin: 0 auto; padding: 0 16px 40px; flex: 1; }
+    .admin-header {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: calc(18px + env(safe-area-inset-top)) 0 16px;
+    }
+    .admin-header h1 { font-size: 20px; font-weight: 900; display: flex; align-items: center; gap: 10px; }
+    .admin-header h1 img { width: 34px; height: 34px; border-radius: 9px; }
+    .admin-user { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 800; color: var(--muted); }
+    .admin-user b { color: var(--brand); }
+
+    /* بوّابة الدخول */
+    .gate {
+      max-width: 460px; margin: 8vh auto; background: var(--surface); border-radius: 22px;
+      box-shadow: var(--shadow-lg); padding: 30px 26px; text-align: center;
+      border: 1px solid var(--line);
+    }
+    .gate .g-ic {
+      width: 76px; height: 76px; margin: 0 auto 14px; border-radius: 50%;
+      display: grid; place-items: center; font-size: 34px;
+      background: var(--brand-soft); border: 2px dashed var(--brand);
+    }
+    .gate h2 { font-size: 20px; font-weight: 900; margin-bottom: 8px; }
+    .gate p { font-size: 13.5px; color: var(--muted); margin-bottom: 16px; line-height: 1.7; }
+    .gate .field { text-align: start; }
+    .gate details {
+      background: var(--surface2); border-radius: 12px; padding: 12px 15px; margin-top: 14px;
+      text-align: start; font-size: 13px;
+    }
+    .gate summary { cursor: pointer; font-weight: 800; color: var(--brand); }
+    .gate ol { padding-inline-start: 20px; margin-top: 8px; color: var(--muted); line-height: 2; }
+    .gate b, .gate code { direction: ltr; display: inline-block; color: var(--text); }
+    .gate-err { color: var(--neg); font-size: 13.5px; font-weight: 800; min-height: 20px; margin-top: 8px; }
+
+    /* التبويبات */
+    .anav { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 14px; scrollbar-width: none; }
+    .anav::-webkit-scrollbar { display: none; }
+    .anav button {
+      flex: 0 0 auto; padding: 9px 17px; border-radius: 999px; font-size: 13.5px; font-weight: 800;
+      background: var(--surface); border: 1px solid var(--line); color: var(--muted); transition: all .2s;
+    }
+    .anav button.active { background: var(--brand); border-color: var(--brand); color: #fff; box-shadow: 0 6px 16px rgba(15,118,110,.3); }
+    .apanel { display: none; animation: fadeUp .3s ease both; }
+    .apanel.active { display: block; }
+
+    .acard { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 18px; margin-bottom: 14px; box-shadow: var(--shadow); }
+    .acard h3 { font-size: 15.5px; font-weight: 900; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .agrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+    .astat { background: var(--surface2); border-radius: 13px; padding: 13px; }
+    .astat b { display: block; font-size: 21px; font-weight: 900; font-variant-numeric: tabular-nums; }
+    .astat span { font-size: 12px; color: var(--muted); }
+    .arepo-line { font-size: 13.5px; color: var(--muted); line-height: 1.9; word-break: break-word; }
+    .arepo-line b { color: var(--text); }
+
+    .atable-wrap { overflow-x: auto; }
+    table.atable { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    .atable th { text-align: start; color: var(--muted); font-size: 12px; padding: 8px; border-bottom: 1px solid var(--line); }
+    .atable td { padding: 9px 8px; border-bottom: 1px solid var(--line); }
+    .atable tr:last-child td { border-bottom: 0; }
+    .st { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 900; }
+    .st.ok { background: var(--pos-soft); color: var(--pos); }
+    .st.bad { background: var(--neg-soft); color: var(--neg); }
+    .st.wait { background: var(--gold-soft); color: var(--gold); }
+
+    .arows { display: flex; flex-direction: column; gap: 9px; }
+    .arow {
+      display: flex; align-items: center; gap: 12px; background: var(--surface2);
+      border-radius: 13px; padding: 11px 14px; font-size: 13.5px; flex-wrap: wrap;
+    }
+    .arow .path { direction: ltr; font-family: ui-monospace, monospace; flex: 1; min-width: 160px; }
+    .arow small { color: var(--muted); }
+
+    .a-actions { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 12px; }
+    .form-row { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+    .form-row .field { flex: 1; min-width: 220px; margin-bottom: 0; }
+    .switch { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 800; padding-top: 26px; }
+    .switch input { width: 20px; height: 20px; accent-color: var(--brand); }
+    .hint { font-size: 12.5px; color: var(--muted); margin-top: 8px; line-height: 1.7; }
+
+    .admin-footer {
+      text-align: center; font-size: 13px; color: var(--muted);
+      padding: 18px 16px calc(22px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); margin-top: 24px;
+    }
+    .admin-footer b { color: var(--text); }
+    .danger-zone { border-color: color-mix(in srgb, var(--neg) 40%, transparent); }
+    @media (max-width: 560px) { .gate { margin-top: 4vh; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+
+    <!-- ═══ بوّابة الدخول (للصاحب فقط) ═══ -->
+    <div class="gate" id="gate">
+      <div class="g-ic">🛡️</div>
+      <h2>لوحة إدارة ذِمّتي</h2>
+      <p>هذه الصفحة <b>داخليّة</b> — ما بيتعرض أي محتوى قبل التحقق من هويتك بتوكن إدارة يخصّ صاحب الموقع فقط.</p>
+      <div class="field">
+        <label for="adminTok">توكن الإدارة</label>
+        <input id="adminTok" class="input" type="password" placeholder="ghp_..." autocomplete="off" spellcheck="false">
+      </div>
+      <button type="button" class="btn btn-primary btn-block" id="btnAdminLogin">دخول اللوحة</button>
+      <div class="gate-err" id="gateErr"></div>
+      <details>
+        <summary>إنشاء توكن الإدارة (دقائق)</summary>
+        <ol>
+          <li>افتح <b>github.com/settings/tokens</b></li>
+          <li>Generate new token (classic) — مدة 90 يوم</li>
+          <li>الصلاحيات: <b>public_repo</b> ✅ و<b>gist</b> ✅</li>
+          <li>Generate → انسخه وهلقّه هون</li>
+        </ol>
+        <p>التوكن ينحفظ بجهازك فقط (localStorage) ولا يُرسل لأي جهة غير جيت هوب. تقدر تشيله بزر «إنهاء الجلسة».</p>
+      </details>
+      <div class="a-actions" style="justify-content:center">
+        <a class="btn btn-ghost btn-sm" href="./">← رجوع للموقع</a>
+      </div>
+    </div>
+
+    <!-- ═══ اللوحة ═══ -->
+    <div id="panel" hidden>
+      <header class="admin-header">
+        <h1><img src="assets/icon-512.png" alt="">لوحة الإدارة</h1>
+        <div class="admin-user">
+          <span>المسؤول: <b id="adminWho">@—</b></span>
+          <button type="button" class="btn btn-ghost btn-sm" id="btnAdminLogout">إنهاء الجلسة</button>
+        </div>
+      </header>
+
+      <nav class="anav" id="anav">
+        <button type="button" class="active" data-tab="overview">📊 نظرة عامة</button>
+        <button type="button" data-tab="content">📢 المحتوى العام</button>
+        <button type="button" data-tab="data">🗄 البيانات والنسخ</button>
+        <button type="button" data-tab="check">🩺 فحص الموقع</button>
+        <button type="button" data-tab="study">🔒 داخلية</button>
+      </nav>
+
+      <!-- نظرة عامة -->
+      <section class="apanel active" id="tab-overview">
+        <div class="acard">
+          <h3>المستودع والنشر <span class="st wait" id="repoSt">...جاري التحميل</span></h3>
+          <div class="agrid">
+            <div class="astat"><b id="stStars">—</b><span>⭐ Stars</span></div>
+            <div class="astat"><b id="stForks">—</b><span>Forks</span></div>
+            <div class="astat"><b id="stIssues">—</b><span>Issues مفتوحة</span></div>
+            <div class="astat"><b id="stWatchers">—</b><span>Watchers</span></div>
+          </div>
+          <div class="arepo-line" style="margin-top:12px" id="repoMeta">—</div>
+        </div>
+        <div class="acard">
+          <h3>آخر نشر (Pages)</h3>
+          <div class="arepo-line" id="pagesMeta">—</div>
+          <div class="a-actions">
+            <a class="btn btn-ghost btn-sm" id="lnkSite" target="_blank" rel="noopener">🌐 فتح الموقع</a>
+            <a class="btn btn-ghost btn-sm" id="lnkRepo" target="_blank" rel="noopener">📦 فتح المستودع</a>
+            <button type="button" class="btn btn-primary btn-sm" id="btnRebuild">♻️ إعادة بناء Pages</button>
+          </div>
+        </div>
+        <div class="acard">
+          <h3>إصدار التشغيل</h3>
+          <div class="arepo-line" id="verMeta">—</div>
+        </div>
+      </section>
+
+      <!-- المحتوى العام -->
+      <section class="apanel" id="tab-content">
+        <div class="acard">
+          <h3>شريط الإعلان للمستخدمين</h3>
+          <p class="hint">يظهر أعلى الصفحة الرئيسية لكل زائر بعد الحفظ والنشر (بينشر خلال دقيقة تقريبًا).</p>
+          <div class="form-row" style="margin-top:12px">
+            <div class="field">
+              <label for="annText">نص الإعلان</label>
+              <input id="annText" class="input" type="text" maxlength="160" placeholder="مثلاً: تحديث جديد — صار في تنبيهات للمواعيد!">
+            </div>
+            <label class="switch"><input type="checkbox" id="annOn"> تفعيل</label>
+          </div>
+          <div class="a-actions">
+            <button type="button" class="btn btn-primary btn-sm" id="btnSaveCfg">💾 حفظ ونشر</button>
+            <span class="st ok" id="cfgSt" hidden>محفوظ ✔</span>
+          </div>
+          <div class="arepo-line" style="margin-top:10px">ملف الإعداد: <b>site-config.json</b> · <span id="cfgMeta">—</span></div>
+        </div>
+      </section>
+
+      <!-- البيانات والنسخ -->
+      <section class="apanel" id="tab-data">
+        <div class="acard">
+          <h3>بيانات هذا الجهاز (المصدر: localStorage)</h3>
+          <div class="agrid">
+            <div class="astat"><b id="dPeople">—</b><span>شخص</span></div>
+            <div class="astat"><b id="dCredit">—</b><span>مستحق ليّا</span></div>
+            <div class="astat"><b id="dDebt">—</b><span>مستحق منّي</span></div>
+            <div class="astat"><b id="dCats">—</b><span>تصنيف</span></div>
+          </div>
+          <div class="atable-wrap" style="margin-top:12px">
+            <table class="atable" id="peopleTable">
+              <thead><tr><th>الاسم</th><th>التصنيف</th><th>الرصيد</th><th>الموعد</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="a-actions">
+            <button type="button" class="btn btn-ghost btn-sm" id="btnExpLocal">⬇︎ تصدير محلي</button>
+          </div>
+        </div>
+        <div class="acard">
+          <h3>السحابة (Secret Gist) <span class="st" id="gistSt">—</span></h3>
+          <div class="a-actions">
+            <button type="button" class="btn btn-primary btn-sm" id="btnPushCloud">⬆ ارفع الآن</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btnPullCloud">⬇ اسحب من السحابة</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btnRefreshGist">🔄 تحديث القائمة</button>
+          </div>
+          <div class="hint">السحب يستبدل بيانات هذا الجهاز بمحتوى السحابة. الرفع يحفظ نسخة حالية.</div>
+          <div id="backupsList" class="arows" style="margin-top:12px">—</div>
+        </div>
+        <div class="acard danger-zone">
+          <h3>منطقة الخطر</h3>
+          <div class="a-actions">
+            <button type="button" class="btn btn-danger btn-sm" id="btnWipe">🗑 تفريغ بيانات هذا الجهاز</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- فحص الموقع -->
+      <section class="apanel" id="tab-check">
+        <div class="acard">
+          <h3>فحوصات مباشرة <button type="button" class="btn btn-primary btn-sm" id="btnRunChecks">▶ تشغيل الفحص</button></h3>
+          <div class="arows" id="checksList"><div class="arow"><small>اضغط «تشغيل الفحص»...</small></div></div>
+        </div>
+        <div class="acard">
+          <h3>محتوى الإعداد العام (site-config.json)</h3>
+          <pre class="arepo-line" id="cfgRaw" style="direction:ltr;text-align:left;white-space:pre-wrap">—</pre>
+        </div>
+      </section>
+
+      <!-- داخلية -->
+      <section class="apanel" id="tab-study">
+        <div class="acard">
+          <h3>🔒 موارد داخلية (غير مربوطة من الموقع العام)</h3>
+          <div class="arows">
+            <a class="arow" href="jadwa.html" target="_blank" rel="noopener"><span>📊 فحص الجدوى العام</span><small>jadwa.html — مخفي عن الروابط والفهرسة</small></a>
+            <a class="arow" href="../dhimmati/docs/feasibility-study.md" onclick="return false"><span>📄 دراسة الجدوى الكاملة</span><small>من المستودع: docs/feasibility-study.md</small></a>
+            <a class="arow" href="../dhimmati/docs/v1.2-changes-study.md" onclick="return false"><span>📝 دراسة تعديلات v1.2</span><small>من المستودع: docs/v1.2-changes-study.md</small></a>
+          </div>
+          <div class="hint">ملاحظة: الملفات موجودة أيضًا بمستودع GitHub (إن كان المستودع عامًا فالمحتوى متاح لمن يعرف الرابط — لجعله خاصًا: Settings → General → Danger zone → Change repository visibility).</div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <footer class="admin-footer">
+    © 2026 ذِمّتي — جميع الحقوق محفوظة · <b>تصميم وبرمجة: صقر رائد البدرساوي</b>
+  </footer>
+
+  <script>
+  'use strict';
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const REPO = 'aldayt38-commits/sanad-invoices';
+  const SITE = 'https://aldayt38-commits.github.io/sanad-invoices/';
+  const API = 'https://api.github.com';
+  const ADM_KEY = 'dhimmati.admin';
+  const DATA_KEY = 'dhimmati.v1';
+
+  let A = null;
+  try { A = JSON.parse(localStorage.getItem(ADM_KEY) || 'null'); } catch (e) { A = null; }
+
+  const enc = (s) => btoa(unescape(encodeURIComponent(s)));
+  const dec = (s) => decodeURIComponent(escape(atob(s)));
+
+  async function gh(path, opts = {}) {
+    const res = await fetch(API + path, {
+      method: opts.method || 'GET',
+      headers: Object.assign({
+        'Authorization': 'Bearer ' + A.token,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json'
+      }, opts.headers || {}),
+      body: opts.body
+    });
+    if (!res.ok) {
+      let m = '';
+      try { m = (await res.json()).message || ''; } catch (e) {}
+      const err = new Error(res.status + ' ' + m);
+      err.status = res.status;
+      throw err;
+    }
+    return res.status === 204 ? null : res.json();
+  }
+
+  /* ─── البوابة ─── */
+  async function gateLogin() {
+    const tok = $('#adminTok').value.trim();
+    const err = $('#gateErr');
+    err.textContent = '';
+    if (!tok) { err.textContent = 'الصق التوكن'; return; }
+    const btn = $('#btnAdminLogin');
+    btn.disabled = true; btn.textContent = 'جارٍ التحقق...';
+    try {
+      const res = await fetch(API + '/user', { headers: { 'Authorization': 'Bearer ' + tok, 'Accept': 'application/vnd.github+json' } });
+      if (!res.ok) throw new Error(res.status === 401 ? 'التوكن غير صالح' : 'تعذّر التحقق');
+      const u = await res.json();
+      A = { token: tok, login: u.login };
+      localStorage.setItem(ADM_KEY, JSON.stringify(A));
+      boot();
+    } catch (e) {
+      err.textContent = e.message || 'فشل الدخول';
+    } finally {
+      btn.disabled = false; btn.textContent = 'دخول اللوحة';
+    }
+  }
+
+  function gateOut() {
+    A = null;
+    localStorage.removeItem(ADM_KEY);
+    $('#panel').hidden = true;
+    $('#gate').style.display = '';
+    $('#adminTok').value = '';
+  }
+
+  async function boot() {
+    if (!A) return;
+    $('#gate').style.display = 'none';
+    $('#panel').hidden = false;
+    $('#adminWho').textContent = '@' + A.login;
+    $('#lnkSite').href = SITE;
+    $('#lnkRepo').href = 'https://github.com/' + REPO;
+    loadOverview(); loadConfig(); loadLocalData(); loadGist();
+  }
+
+  /* ─── تبويبات ─── */
+  $('#anav').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tab]');
+    if (!b) return;
+    $$('#anav button').forEach((x) => x.classList.toggle('active', x === b));
+    $$('.apanel').forEach((p) => p.classList.toggle('active', p.id === 'tab-' + b.dataset.tab));
+  });
+
+  /* ─── نظرة عامة ─── */
+  async function loadOverview() {
+    try {
+      const repo = await gh('/repos/' + REPO);
+      $('#stStars').textContent = repo.stargazers_count;
+      $('#stForks').textContent = repo.forks_count;
+      $('#stIssues').textContent = repo.open_issues_count;
+      $('#stWatchers').textContent = repo.subscribers_count;
+      $('#repoSt').textContent = (repo.private ? '🔒 خاص' : '🌍 عام');
+      $('#repoSt').className = 'st ok';
+      $('#repoMeta').innerHTML =
+        `الوصف: <b>${repo.description || '—'}</b><br>` +
+        `اللغة: <b>${repo.language || '—'}</b> · فرع افتراضي: <b>${repo.default_branch}</b> · آخر push: <b>${new Date(repo.pushed_at).toLocaleString('en-GB')}</b>`;
+    } catch (e) {
+      $('#repoSt').textContent = 'تعذّر';
+      $('#repoSt').className = 'st bad';
+      $('#repoMeta').textContent = e.message;
+    }
+    try {
+      const c = await gh('/repos/' + REPO + '/commits/main');
+      $('#repoMeta').innerHTML += `<br>آخر commit: <b>${c.sha.slice(0, 7)}</b> — ${c.commit.message.split('\n')[0]} <i>(${new Date(c.commit.author.date).toLocaleString('en-GB')})</i>`;
+    } catch (e) { /* */ }
+    try {
+      const p = await gh('/repos/' + REPO + '/pages');
+      $('#pagesMeta').innerHTML =
+        `الحالة: <b>${p.status === 'built' ? '🟢 مبني' : p.status}</b> · <b>${p.html_url}</b>` +
+        (p.cname ? ` · دومين مخصّص: <b>${p.cname}</b>` : '');
+    } catch (e) {
+      $('#pagesMeta').textContent = 'حالة Pages غير متاحة (' + e.message + ')';
+    }
+    try {
+      const sw = await fetch('sw.js?_=' + Date.now(), { cache: 'no-store' }).then((r) => r.text());
+      const cache = (sw.match(/CACHE\s*=\s*'([^']+)'/) || [])[1] || '—';
+      $('#verMeta').innerHTML = `كاش الخدمة: <b>${cache}</b> · اللوحة تعمل كمسؤول: <b>@${A.login}</b>`;
+    } catch (e) { $('#verMeta').textContent = '—'; }
+  }
+
+  $('#btnRebuild').addEventListener('click', async () => {
+    try {
+      await gh('/repos/' + REPO + '/pages/builds', { method: 'POST', body: '{}' });
+      alert('تم تشغيل بناء Pages — بيخلص خلال دقيقة.');
+    } catch (e) { alert('تعذّر تشغيل البناء: ' + e.message); }
+  });
+
+  /* ─── المحتوى العام ─── */
+  let cfgSha = null;
+  async function loadConfig() {
+    try {
+      const f = await gh('/repos/' + REPO + '/contents/site-config.json');
+      cfgSha = f.sha;
+      const cfg = JSON.parse(dec(f.content));
+      $('#annOn').checked = !!(cfg.announce && cfg.announce.on);
+      $('#annText').value = (cfg.announce && cfg.announce.text) || '';
+      $('#cfgMeta').textContent = 'آخر تحديث: ' + (cfg.updated || '—');
+      $('#cfgRaw').textContent = JSON.stringify(cfg, null, 2);
+      return cfg;
+    } catch (e) {
+      $('#cfgMeta').textContent = 'تعذّر القراءة: ' + e.message;
+      return null;
+    }
+  }
+
+  $('#btnSaveCfg').addEventListener('click', async () => {
+    const cfg = {
+      announce: { on: $('#annOn').checked, text: $('#annText').value.trim() },
+      updated: new Date().toISOString().slice(0, 10)
+    };
+    try {
+      if (cfgSha == null) await loadConfig();
+      await gh('/repos/' + REPO + '/contents/site-config.json', {
+        method: 'PUT',
+        body: JSON.stringify({
+          message: 'admin: تحديث الإعلان العام',
+          content: enc(JSON.stringify(cfg, null, 2)),
+          sha: cfgSha
+        })
+      });
+      const f = await gh('/repos/' + REPO + '/contents/site-config.json');
+      cfgSha = f.sha;
+      $('#cfgRaw').textContent = JSON.stringify(cfg, null, 2);
+      $('#cfgSt').hidden = false;
+      setTimeout(() => { $('#cfgSt').hidden = true; }, 4000);
+    } catch (e) { alert('تعذّر الحفظ: ' + e.message); }
+  });
+
+  /* ─── البيانات والنسخ ─── */
+  function readLocal() {
+    try {
+      const d = JSON.parse(localStorage.getItem(DATA_KEY) || 'null');
+      return d && Array.isArray(d.people) ? d : { people: [], log: [], cats: [] };
+    } catch (e) { return { people: [], log: [], cats: [] }; }
+  }
+
+  function fmtN(n) { return Math.abs(n).toLocaleString('en-US'); }
+
+  function loadLocalData() {
+    const d = readLocal();
+    let credit = 0, debt = 0;
+    d.people.forEach((p) => { if (p.bal > 0) credit += p.bal; else debt -= p.bal; });
+    $('#dPeople').textContent = d.people.length;
+    $('#dCredit').textContent = fmtN(credit) + ' ₪';
+    $('#dDebt').textContent = fmtN(debt) + ' ₪';
+    $('#dCats').textContent = (d.cats || []).length;
+    const tb = $('#peopleTable tbody');
+    tb.innerHTML = d.people.slice(0, 40).map((p) => {
+      const cls = p.bal > 0 ? 'ok' : p.bal < 0 ? 'bad' : 'wait';
+      const due = p.due ? new Date(p.due).toLocaleDateString('en-GB') : '—';
+      return `<tr><td>${esc(p.name)}</td><td>${esc(p.cat || '—')}</td><td><span class="st ${cls}">${fmtN(p.bal)}</span></td><td>${due}</td></tr>`;
+    }).join('') || '<tr><td colspan="4">لا بيانات</td></tr>';
+  }
+
+  function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
+
+  $('#btnExpLocal').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(readLocal(), null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'dhimmati-local.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  });
+
+  async function findGist() {
+    const gists = await gh('/gists?per_page=100');
+    const g = (gists || []).find((x) => x.files && x.files['dhimmati.json']);
+    return g || null;
+  }
+
+  async function loadGist() {
+    const st = $('#gistSt');
+    st.textContent = '...'; st.className = 'st wait';
+    try {
+      const g = await findGist();
+      if (!g) { st.textContent = 'ما في ملف مزامنة بعد'; st.className = 'st wait'; $('#backupsList').textContent = '—'; return null; }
+      st.textContent = 'متصل ✔'; st.className = 'st ok';
+      const names = Object.keys(g.files);
+      const backups = names.filter((n) => n.startsWith('backup-local-'));
+      $('#backupsList').innerHTML = backups.length
+        ? backups.map((n) => `
+            <div class="arow"><span>🗂 ${esc(n)}</span>
+              <button type="button" class="btn btn-ghost btn-sm" data-restore="${esc(n)}">استرجاع</button>
+            </div>`).join('')
+        : '<div class="arow"><small>ما في نسخ احتياطية بعد (تُنشأ عند دمج محلي/سحابي)</small></div>';
+      return g;
+    } catch (e) {
+      st.textContent = e.status === 403 ? 'التوكن بلا نطاق gist' : 'خطأ';
+      st.className = 'st bad';
+      return null;
+    }
+  }
+
+  $('#btnRefreshGist').addEventListener('click', loadGist);
+
+  $('#backupsList').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-restore]');
+    if (!b) return;
+    const name = b.dataset.restore;
+    if (!confirm('استرجاع «' + name + '»؟ سيستبدل بيانات هذا الجهاز.')) return;
+    try {
+      const g = await gh('/gists/' + (await findGist()).id);
+      const f = g.files[name];
+      if (!f || !f.content) throw new Error('الملف فاضي');
+      await gh('/gists/' + g.id, {
+        method: 'PATCH',
+        body: JSON.stringify({ files: { 'dhimmati.json': { content: f.content } } })
+      });
+      localStorage.setItem(DATA_KEY, f.content);
+      alert('تم الاسترجاع ✔ أعد تحميل تطبيق التطبيق.');
+      loadLocalData();
+    } catch (e) { alert('تعذّر الاسترجاع: ' + e.message); }
+  });
+
+  $('#btnPushCloud').addEventListener('click', async () => {
+    try {
+      const content = localStorage.getItem(DATA_KEY) || '{}';
+      const g = await findGist();
+      if (g) await gh('/gists/' + g.id, { method: 'PATCH', body: JSON.stringify({ files: { 'dhimmati.json': { content } } }) });
+      else await gh('/gists', { method: 'POST', body: JSON.stringify({ description: 'ذِمّتي — نسخة احتياطية', public: false, files: { 'dhimmati.json': { content } } }) });
+      alert('تم الرفع ✔');
+      loadGist();
+    } catch (e) { alert('تعذّر الرفع: ' + e.message); }
+  });
+
+  $('#btnPullCloud').addEventListener('click', async () => {
+    try {
+      const g = await findGist();
+      if (!g) { alert('ما في ملف سحابي'); return; }
+      const f = g.files['dhimmati.json'];
+      if (!f || !f.content) { alert('الملف فاضي'); return; }
+      if (!confirm('السحب يستبدل بيانات هذا الجهاز. متابعة؟')) return;
+      localStorage.setItem(DATA_KEY, f.content);
+      alert('تم السحب ✔');
+      loadLocalData();
+    } catch (e) { alert('تعذّر السحب: ' + e.message); }
+  });
+
+  $('#btnWipe').addEventListener('click', async () => {
+    if (!confirm('تفريغ كل بيانات هذا الجهاز نهائيًا؟ (الأفضل تصدير أولًا)')) return;
+    if (!confirm('تأكيد أخير — لا رجعة؟')) return;
+    localStorage.removeItem(DATA_KEY);
+    loadLocalData();
+    alert('تم التفريغ');
+  });
+
+  /* ─── فحص الموقع ─── */
+  const CHECK_PATHS = ['/', '/index.html', '/jadwa.html', '/admin.html', '/site-config.json',
+    '/manifest.json', '/sw.js', '/css/style.css', '/js/app.js', '/assets/icon.svg', '/assets/icon-512.png'];
+
+  $('#btnRunChecks').addEventListener('click', async () => {
+    const box = $('#checksList');
+    box.innerHTML = '<div class="arow"><small>جارٍ الفحص...</small></div>';
+    const rows = [];
+    for (const p of CHECK_PATHS) {
+      const t0 = performance.now();
+      let st = 'bad', label = '—', ms = 0;
+      try {
+        const r = await fetch(SITE.replace(/\/$/, '') + p + '?_ck=' + Date.now(), { cache: 'no-store' });
+        ms = Math.round(performance.now() - t0);
+        st = r.ok ? 'ok' : 'bad';
+        label = r.status;
+      } catch (e) { label = 'فشل'; }
+      rows.push(`<div class="arow"><span class="path">${p}</span><span class="st ${st}">${label}</span><small>${ms}ms</small></div>`);
+    }
+    box.innerHTML = rows.join('');
+  });
+
+  /* ─── تشغيل ─── */
+  $('#btnAdminLogin').addEventListener('click', gateLogin);
+  $('#adminTok').addEventListener('keydown', (e) => { if (e.key === 'Enter') gateLogin(); });
+  $('#btnAdminLogout').addEventListener('click', () => {
+    if (confirm('إنهاء جلسة الإدارة؟')) gateOut();
+  });
+  if (A) boot();
+  </script>
+</body>
+</html>

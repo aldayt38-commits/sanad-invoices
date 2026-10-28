@@ -27,6 +27,9 @@
         </div>
       </div>
       <div class="top-actions">
+        <button type="button" class="icon-btn" id="btnAccount" title="الحساب والمزامنة" aria-label="الحساب والمزامنة">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c.7-4 3.8-6.5 8-6.5s7.3 2.5 8 6.5"/></svg>
+        </button>
         <button type="button" class="icon-btn js-share-app" title="شارك التطبيق" aria-label="شارك التطبيق">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
         </button>
@@ -41,6 +44,21 @@
 
       <!-- ======= الرئيسية ======= -->
       <section class="view" id="view-home">
+
+        <div class="announce hidden" id="announceBar">
+          <span class="ann-ic">📢</span>
+          <span id="announceText"></span>
+          <button type="button" class="install-x" id="announceClose" aria-label="إغلاق">✕</button>
+        </div>
+
+        <button type="button" class="login-banner hidden" id="loginBanner">
+          <span class="ib-ic">☁️</span>
+          <span class="ib-text">
+            <b>سجّل دخول واحفظ ديونك بحسابك</b>
+            <small>ترجع معك من أي جهاز — ولو حذفتها انت بروحوا</small>
+          </span>
+          <span class="lb-go">دخول</span>
+        </button>
 
         <div class="install-banner hidden" id="installBanner">
           <span class="ib-ic">📲</span>
@@ -205,10 +223,7 @@
         </div>
 
         <div class="set-group">
-          <h3>عن الفكرة</h3>
-          <a class="set-item" href="jadwa.html">
-            <span>📊 فحص الجدوى الكامل</span><small>الانتشار 96%</small>
-          </a>
+          <h3>المشاركة</h3>
           <button type="button" class="set-item js-share-app">
             <span>📤 مشاركة التطبيق</span><small>رسالة + بطاقة</small>
           </button>
@@ -218,11 +233,11 @@
           <b>🔒 الخصوصية أولًا</b>
           <p>بياناتك محليًا بجهازك افتراضيًا. لو سجّلت دخول، بتنسخ سرّيًا بحساب جيت هوب الخاص فيك — بلا سيرفراتنا، وبلا تتبع. لو مسحت محليًا بدون دخول، بيروحوا، فلا تنسى التصدير.</p>
         </div>
-
-        <footer class="app-footer">
-          ذِمّتي v1.2.0 — مبني بالكامل عربيًا · <a href="jadwa.html">فحص الجدوى</a>
-        </footer>
       </section>
+
+      <footer class="site-footer">
+        © 2026 ذِمّتي v1.2.1 — جميع الحقوق محفوظة · <b>تصميم وبرمجة: صقر رائد البدرساوي</b>
+      </footer>
 
     </main>
 
@@ -261,29 +276,43 @@
     </div>
   </div>
 
-  <!-- تسجيل الدخول -->
+  <!-- الحساب / تسجيل الدخول -->
   <div class="sheet" id="sheetLogin" hidden role="dialog" aria-modal="true">
     <div class="sheet-grip"></div>
     <div class="login-box">
-      <div class="invite-ic">🔑</div>
-      <h3>تسجيل الدخول والمزامنة</h3>
-      <p class="login-sub">ادخل بحساب جيت هوب (GitHub) — ديونك كلها بتنحفظ عليه وترجع معك من أي جهاز، إلا إذا حذفتها بنفسك.</p>
-      <div class="field">
-        <label for="loginToken">توكن GitHub (نطاقه gist فقط)</label>
-        <input id="loginToken" class="input" type="password" placeholder="ghp_..." autocomplete="off" spellcheck="false">
+      <div id="loginView">
+        <div class="invite-ic">🔑</div>
+        <h3>تسجيل الدخول والمزامنة</h3>
+        <p class="login-sub">ادخل بحساب جيت هوب (GitHub) — ديونك كلها بتنحفظ عليه وترجع معك من أي جهاز، إلا إذا حذفتها بنفسك.</p>
+        <div class="field">
+          <label for="loginToken">توكن GitHub (نطاقه gist فقط)</label>
+          <input id="loginToken" class="input" type="password" placeholder="ghp_..." autocomplete="off" spellcheck="false">
+        </div>
+        <button type="button" class="btn btn-primary btn-block" id="btnLogin">دخول ومزامنة</button>
+        <details class="login-help">
+          <summary>كيف أنشئ التوكن؟ (30 ثانية)</summary>
+          <ol>
+            <li>افتح <b>github.com/settings/tokens</b></li>
+            <li>Generate new token (classic) — مدة 30 يوم</li>
+            <li>علّم الصلاحية <b>gist</b> فقط ✅</li>
+            <li>Generate → انسخه وارجع لهون</li>
+          </ol>
+          <p class="login-note">التوكن بينحفظ بجهازك فقط ولا بينبعث لأي سيرفر غير جيت هوب. تقدر تشيله بأي وقت.</p>
+        </details>
+        <button type="button" class="btn btn-ghost btn-block" data-close>إلغاء</button>
       </div>
-      <button type="button" class="btn btn-primary btn-block" id="btnLogin">دخول ومزامنة</button>
-      <details class="login-help">
-        <summary>كيف أنشئ التوكن؟ (30 ثانية)</summary>
-        <ol>
-          <li>افتح <b>github.com/settings/tokens</b></li>
-          <li>Generate new token (classic) — مدة 30 يوم</li>
-          <li>علّم الصلاحية <b>gist</b> فقط ✅</li>
-          <li>Generate وا kopية وارجع لهون</li>
-        </ol>
-        <p class="login-note">التوكن بينحفظ بجهازك فقط ولا بينبعث لأي سيرفر غير جيت هوب. تقدر تشيله بأي وقت.</p>
-      </details>
-      <button type="button" class="btn btn-ghost btn-block" data-close>إلغاء</button>
+
+      <div id="acctView" hidden>
+        <div class="invite-ic">👤</div>
+        <h3>حسابك</h3>
+        <p class="login-sub">
+          <b id="acctName" style="color:var(--brand);font-size:17px">@—</b><br>
+          <span id="acctSync">—</span>
+        </p>
+        <button type="button" class="btn btn-primary btn-block" id="btnSyncNow" style="margin-bottom:10px">🔄 مزامنة الآن</button>
+        <button type="button" class="btn btn-ghost btn-block" id="btnLogoutAcct">تسجيل الخروج</button>
+        <button type="button" class="btn btn-ghost btn-block" data-close style="margin-top:10px">إغلاق</button>
+      </div>
     </div>
   </div>
 

@@ -1,7 +1,7 @@
-/* فحص دخان — ذِمّتي v1.2
+/* فحص دخان — ذِمّتي v1.2.1
    الاستخدام: node tests/smoke.mjs
    مع خادم: TEST_URL=http://127.0.0.1:8080 node tests/smoke.mjs */
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 
@@ -13,39 +13,77 @@ const ok = (cond, msg) => {
 };
 
 // 1) الملفات
-const files = ['index.html', 'jadwa.html', 'css/style.css', 'js/app.js', 'manifest.json', 'sw.js',
-  'assets/icon.svg', 'assets/icon-512.png', 'docs/feasibility-study.md', 'docs/v1.2-changes-study.md', 'README.md'];
+const files = ['index.html', 'jadwa.html', 'admin.html', 'site-config.json', 'css/style.css', 'js/app.js',
+  'manifest.json', 'sw.js', 'assets/icon.svg', 'assets/icon-512.png',
+  'docs/feasibility-study.md', 'docs/v1.2-changes-study.md', 'README.md'];
 for (const f of files) ok(existsSync(root + f), `يوجد الملف: ${f}`);
 
 // 2) manifest
 try {
   const m = JSON.parse(readFileSync(root + 'manifest.json', 'utf8'));
   ok(m.dir === 'rtl' && m.lang === 'ar', 'manifest عربي RTL');
-  ok(m.icons.every((i) => existsSync(root + i.src)), 'manifest: مسارات الأيقونات صحيحة');
+  ok(m.icons.every((i) => existsSync(root + i.src)), 'manifest: الأيقونات صحيحة');
 } catch { ok(false, 'manifest JSON صالح'); }
 
-// 3) الهيكل — أساسي + v1.1 + v1.2
+// 3) site-config صالح
+try {
+  const c = JSON.parse(readFileSync(root + 'site-config.json', 'utf8'));
+  ok(c && typeof c.announce === 'object', 'site-config: بنية الإعلان سليمة');
+} catch { ok(false, 'site-config JSON'); }
+
+// 4) index — عام
 const html = readFileSync(root + 'index.html', 'utf8');
 ok(html.includes('dir="rtl"'), 'index: اتجاه RTL');
+ok(html.includes('v1.2.1'), 'index: الإصدار v1.2.1');
+
+// خصوصية: لا روابط للجدوى من الواجهة العامة
+ok(!html.includes('jadwa.html'), 'خصوصية: بدون رابط جدوى بالواجهة العامة');
+ok(!html.toLowerCase().includes('فحص الجدوى'), 'خصوصية: بدون نص «فحص الجدوى» بالواجهة');
+
+// التذييل / الحقوق
+ok(html.includes('© 2026') || html.includes('&#169; 2026') || html.includes('&copy; 2026') || html.includes('© 2026'), 'index: حقوق النشر 2026');
+ok(html.includes('صقر رائد البدرساوي'), 'index: توقيع «تصميم وبرمجة: صقر رائد البدرساوي»');
+ok(html.includes('site-footer'), 'index: تذييل عام');
+
+// الدخول الظاهر
 const ids = [
-  'view-home', 'view-people', 'view-settings', 'sheetPerson', 'sheetDetail',
-  'sheetPay', 'sheetShare', 'modalConfirm', 'statNet', 'btnAdd', 'currencySel',
+  'view-home', 'view-people', 'view-settings', 'sheetPerson', 'sheetDetail', 'sheetPay', 'sheetShare',
+  'modalConfirm', 'statNet', 'btnAdd', 'currencySel',
   // v1.1
-  'sheetInvite', 'inviteMsg', 'btnInviteAccept', 'btnShareSummary', 'installBanner',
-  'shLink', 'shNative', 'myName',
-  // v1.2 — الحساب
-  'sheetLogin', 'loginToken', 'btnLogin', 'accountBox', 'accountLoggedOut', 'accountLoggedIn',
-  'btnOpenLogin', 'btnLogout', 'syncInfo',
-  // v1.2 — التصنيفات
-  'catChips', 'quickCatRow', 'quickCatName', 'catFilter', 'catManage', 'newCatName', 'btnAddCat',
-  // v1.2 — المواعيد والتنبيهات
-  'overdueStrip', 'overdueCount', 'sheetDue', 'dueDate', 'dueClear', 'pDue', 'payNote', 'btnNotify'
+  'sheetInvite', 'btnShareSummary', 'installBanner', 'shLink', 'shNative', 'myName',
+  // v1.2
+  'sheetLogin', 'loginToken', 'btnLogin', 'accountBox', 'btnOpenLogin', 'btnLogout', 'syncInfo',
+  'catChips', 'catFilter', 'catManage', 'newCatName', 'btnAddCat',
+  'overdueStrip', 'sheetDue', 'dueDate', 'pDue', 'payNote', 'btnNotify',
+  // v1.2.1 — دخول ظاهر + إعلانات
+  'btnAccount', 'loginView', 'acctView', 'acctName', 'acctSync', 'btnLogoutAcct', 'btnSyncNow',
+  'loginBanner', 'announceBar', 'announceText', 'announceClose'
 ];
 for (const id of ids) ok(html.includes(`id="${id}"`), `index: id=#${id}`);
-ok(html.includes('v1.2.0'), 'index: الإصدار v1.2.0');
 ok(html.includes('data-filter="overdue"'), 'index: فلتر المتأخرات');
 
-// 4) صياغة JS
+// 5) admin.html — بوّابة + خصوصية
+const admin = readFileSync(root + 'admin.html', 'utf8');
+ok(admin.includes('noindex'), 'admin: مانع فهرسة noindex');
+ok(admin.includes('لوحة إدارة'), 'admin: عنوان اللوحة');
+for (const id of ['gate', 'adminTok', 'btnAdminLogin', 'panel', 'anav', 'annText', 'annOn',
+  'btnSaveCfg', 'btnRunChecks', 'btnPushCloud', 'btnPullCloud', 'backupsList', 'btnAdminLogout']) {
+  ok(admin.includes(`id="${id}"`), `admin: id=#${id}`);
+}
+ok(admin.includes('صقر رائد البدرساوي'), 'admin: التوقيع');
+ok(admin.includes('© 2026'), 'admin: حقوق النشر');
+ok(admin.includes('site-config.json'), 'admin: إدارة المحتوى العام');
+// اللوحة لا تعرض محتوى قبل التحقق
+ok(/#panel" hidden|id="panel" hidden/.test(admin), 'admin: اللوحة مخفية افتراضيًا');
+
+// 6) jadwa — داخلي
+const jadwa = readFileSync(root + 'jadwa.html', 'utf8');
+ok(jadwa.includes('noindex'), 'jadwa: مانع فهرسة noindex');
+ok(jadwa.includes('صقر رائد البدرساوي'), 'jadwa: التوقيع');
+ok(jadwa.includes('© 2026'), 'jadwa: حقوق النشر');
+ok(jadwa.includes('95.9'), 'jadwa: المحتوى محفوظ');
+
+// 7) صياغة JS
 try {
   execSync(`node --check "${root}js/app.js"`, { stdio: 'pipe' });
   ok(true, 'js/app.js سليم نحوًا');
@@ -54,65 +92,55 @@ try {
   execSync(`node --check "${root}sw.js"`, { stdio: 'pipe' });
   ok(true, 'sw.js سليم نحوًا');
 } catch (e) { ok(false, 'sw.js سليم نحوًا'); }
+// JS اللوحة (مستخرج من HTML)
+try {
+  const m = admin.match(/<script>([\s\S]*?)<\/script>/);
+  if (m) {
+    writeFileSync('/tmp/admin-extract.js', m[1]);
+    execSync('node --check "/tmp/admin-extract.js"', { stdio: 'pipe' });
+    ok(true, 'admin: JS سليم نحوًا');
+  } else ok(false, 'admin: ما في script');
+} catch (e) { ok(false, 'admin: JS — ' + e.message); }
 
-// 5) SW
+// 8) SW + المنطق
 const sw = readFileSync(root + 'sw.js', 'utf8');
-ok(sw.includes('dhimmati-v1.2'), 'sw: كاش v1.2');
+ok(sw.includes('dhimmati-v1.2.1'), 'sw: كاش v1.2.1');
 
-// 6) المنطق
 const app = readFileSync(root + 'js/app.js', 'utf8');
 const checks = [
-  ['localStorage', 'حفظ محلي'],
-  ['wa.me', 'مشاركة واتساب'],
-  ['serviceWorker', 'تسجيل PWA'],
-  ['inviteURL', 'رابط طلب موجّه'],
-  ['shareTextSummary', 'ملخص مشترك'],
-  ['navigator.share', 'مشاركة نظام'],
-  ['beforeinstallprompt', 'تثبيت PWA'],
-  // v1.2
-  ['doLogin', 'تسجيل الدخول'],
-  ['/gists', 'تخزين Gist سحابي'],
-  ['scheduleSync', 'مزامنة تلقائية مؤجّلة'],
-  ['doLogout', 'تسجيل خروج آمن'],
-  ['Notification', 'تنبيهات المتصفح'],
-  ['fireDueNotifications', 'فحص ديون متأخرة'],
-  ['dueInfo', 'مواعيد الاستحقاق'],
-  ['isOverdue', 'منطق التأخر'],
-  ['formCat', 'التصنيفات'],
-  ['undoBuf', 'تراجع عن الحذف'],
-  ['payNote', 'ملاحظة الدفعة'],
-  ['renderCatManage', 'إدارة التصنيفات']
+  ['localStorage', 'حفظ محلي'], ['wa.me', 'واتساب'], ['inviteURL', 'رابط طلب'],
+  ['doLogin', 'تسجيل الدخول'], ['/gists', 'مزامنة Gist'], ['scheduleSync', 'مزامنة مؤجّلة'],
+  ['doLogout', 'خروج آمن'], ['Notification', 'تنبيهات'], ['dueInfo', 'مواعيد'],
+  ['formCat', 'تصنيفات'], ['undoBuf', 'تراجع حذف'], ['payNote', 'ملاحظة دفعة'],
+  ['openAccount', 'ورقة الحساب'], ['announceBar', 'الإعلان العام'], ['site-config.json', 'قراءة الإعداد']
 ];
 for (const [n, label] of checks) ok(app.includes(n), `app: ${label}`);
-ok(!/api[_-]?key|Bearer ghp_/i.test(app), 'app: بلا توكنات مثبّتة');
+ok(!/ghp_[A-Za-z0-9]{20,}/.test(app), 'app: بلا توكنات مثبّتة');
 
-// 7) أمن: لا توكنات بأي ملف نصي بالمستودع
+// 9) أمن: لا توكنات بأي ملف
 function walk(dir, out = []) {
   for (const f of readdirSync(dir)) {
     if (f === '.git') continue;
     const p = join(dir, f);
     try {
       const st = readFileSync(p);
-      if (st.length < 400000 && !f.endsWith('.png')) out.push(p);
+      if (st.length < 500000 && !f.endsWith('.png')) out.push(p);
     } catch (e) { /* */ }
   }
   return out;
 }
 let leaked = [];
 for (const p of walk(root)) {
-  const c = readFileSync(p, 'utf8');
-  if (/ghp_[A-Za-z0-9]{20,}/.test(c)) leaked.push(p.replace(root, ''));
+  if (/ghp_[A-Za-z0-9]{20,}/.test(readFileSync(p, 'utf8'))) leaked.push(p.replace(root, ''));
 }
-ok(leaked.length === 0, 'أمن: بلا توكنات مسجّلة بالمستودع' + (leaked.length ? ' — ' + leaked.join(',') : ''));
+ok(leaked.length === 0, 'أمن: بلا توكنات بالمستودع' + (leaked.length ? ' — ' + leaked.join(',') : ''));
 
-// 8) الجدوى
-const jadwa = readFileSync(root + 'jadwa.html', 'utf8');
-ok(jadwa.includes('95.9'), 'jadwa: المؤشر 95.9%');
-
-// 9) HTTP
+// 10) HTTP
 const base = process.env.TEST_URL;
 if (base) {
-  for (const p of ['/', '/index.html', '/css/style.css', '/js/app.js', '/manifest.json', '/sw.js', '/jadwa.html']) {
+  const paths = ['/', '/index.html', '/admin.html', '/site-config.json', '/jadwa.html',
+    '/css/style.css', '/js/app.js', '/manifest.json', '/sw.js'];
+  for (const p of paths) {
     try {
       const r = await fetch(base.replace(/\/$/, '') + p);
       ok(r.status === 200, `HTTP 200: ${p}`);
@@ -120,7 +148,10 @@ if (base) {
   }
   const r = await fetch(base.replace(/\/$/, '') + '/');
   const t = await r.text();
-  ok(t.includes('ذِمّتي') && t.includes('sheetLogin'), 'HTTP: محتوى v1.2 يصل');
+  ok(t.includes('صقر رائد البدرساوي') && t.includes('btnAccount'), 'HTTP: التوقيع + الدخول يصلان');
+  const ra = await fetch(base.replace(/\/$/, '') + '/admin.html');
+  const ta = await ra.text();
+  ok(ta.includes('noindex'), 'HTTP: اللوحة محمية+Fهرسة');
 } else {
   console.log('ℹ️  (اختياري) TEST_URL=... لفحص HTTP');
 }

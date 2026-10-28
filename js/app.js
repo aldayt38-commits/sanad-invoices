@@ -345,9 +345,12 @@ function renderAccount() {
   const loggedOut = !sess;
   $('#accountLoggedOut').hidden = !loggedOut;
   $('#accountLoggedIn').hidden = loggedOut;
+  $('#loginBanner').classList.toggle('hidden', !!sess);
   if (!loggedOut) {
     $('#accountLogin').textContent = '@' + (sess.login || '');
     $('#syncInfo').textContent = syncStatusText();
+    $('#acctName').textContent = '@' + (sess.login || '');
+    $('#acctSync').textContent = syncStatusText();
   }
   const nb = $('#btnNotify');
   if (nb && 'Notification' in window) {
@@ -1127,6 +1130,20 @@ function addSample() {
   toast('انضافت بيانات تجريبية ✔');
 }
 
+/* ─── ورقة الحساب (وصول سريع من الشريط/البانر) ─── */
+function openAccount() {
+  const logged = !!sess;
+  $('#loginView').hidden = logged;
+  $('#acctView').hidden = !logged;
+  if (logged) {
+    $('#acctName').textContent = '@' + (sess.login || '');
+    $('#acctSync').textContent = syncStatusText();
+  } else {
+    $('#loginToken').value = '';
+  }
+  openSheet($('#sheetLogin'));
+}
+
 /* ─── الأحداث ─── */
 function wire() {
   // التنقل
@@ -1146,7 +1163,7 @@ function wire() {
     const li = e.target.closest('.li[data-id]');
     if (li) { openDetail(li.dataset.id); return; }
     if (e.target.closest('[data-close]')) { closeTop(); return; }
-    if (e.target.closest('#btnOpenLogin')) { $('#loginToken').value = ''; openSheet($('#sheetLogin')); setTimeout(() => $('#loginToken').focus(), 350); return; }
+    if (e.target.closest('#btnOpenLogin')) { openAccount(); return; }
     if (e.target.closest('#btnLogout')) { doLogout(); return; }
     const catDel = e.target.closest('[data-catdel]');
     if (catDel) {
@@ -1350,9 +1367,40 @@ function wire() {
     toast('تمام — الدفتر مفتوح قدامك');
   });
 
-  // الدخول
+  // الدخول + الحساب الظاهر + الإعلان
+  $('#btnAccount').addEventListener('click', openAccount);
+  $('#loginBanner').addEventListener('click', openAccount);
   $('#btnLogin').addEventListener('click', () => doLogin($('#loginToken').value));
   $('#loginToken').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin($('#loginToken').value); });
+  $('#btnLogoutAcct').addEventListener('click', async () => {
+    await doLogout();
+    if (sheetStack.includes($('#sheetLogin'))) openAccount();
+  });
+  $('#btnSyncNow').addEventListener('click', () => {
+    if (!sess) return;
+    clearTimeout(syncTimer);
+    runSync().then(() => {
+      $('#acctSync').textContent = syncStatusText();
+      toast('تمت المزامنة ✔');
+    });
+  });
+  $('#announceClose').addEventListener('click', () => {
+    $('#announceBar').classList.add('hidden');
+    try { sessionStorage.setItem('dhimmati.ann', '1'); } catch (e) { /* */ }
+  });
+  // شريط الإعلان العام (site-config.json من لوحة الإدارة)
+  fetch('site-config.json?t=' + Date.now(), { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((cfg) => {
+      const a = cfg && cfg.announce;
+      let dismissed = false;
+      try { dismissed = sessionStorage.getItem('dhimmati.ann') === '1'; } catch (e) { /* */ }
+      if (a && a.on && a.text && !dismissed) {
+        $('#announceText').textContent = a.text;
+        $('#announceBar').classList.remove('hidden');
+      }
+    })
+    .catch(() => {});
 
   // التنبيهات
   $('#btnNotify').addEventListener('click', () => {
