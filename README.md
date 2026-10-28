@@ -3,9 +3,9 @@
 **تطبيق ويب عربي (PWA)** لتسجيل الديون الشخصية: من مين وبكم — ليّا عليه أو أنا عليه — مع مشاركة بلمسة عبر واتساب وبطاقات صورة، **بدون تسجيل** و**بدون سيرفر**، وكل بياناتك تبقى داخل متصفحك.
 
 > ### 🔗 الروابط
-> - **فوري (بدون توكن — يفتح من أي متصفح/تلفون):** https://rows-optical-chair-vector.trycloudflare.com — يعمل طول ما جلسة النشر فعّالة
-> - **فحوى الجدوى:** https://rows-optical-chair-vector.trycloudflare.com/jadwa.html
-> - **دائم (GitHub Pages):** بعد تفعيل Pages → `https://<اسمك>.github.io/dhimmati/` — راجع «النشر والدومين»
+> - **الرابط الدائم (GitHub Pages):** https://aldayt38-commits.github.io/sanad-invoices/
+> - **فحوى الجدوى:** https://aldayt38-commits.github.io/sanad-invoices/jadwa.html
+> - **المستودع:** https://github.com/aldayt38-commits/sanad-invoices
 
 ## 🛠️ التشغيل محليًا
 
