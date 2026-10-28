@@ -1,0 +1,33 @@
+{
+  "name": "ذِمّتي — دفتر الديون الذكي",
+  "short_name": "ذِمّتي",
+  "description": "سجّل اللي عليك واللي ليك، وفكّر الطرف بلمسة عبر واتساب. عربي بالكامل، بدون تسجيل، وبياناتك تبقى عندك.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#080D16",
+  "theme_color": "#0F766E",
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
