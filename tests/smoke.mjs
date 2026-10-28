@@ -1,4 +1,4 @@
-/* فحص دخان — ذِمّتي
+/* فحص دخان — ذِمّتي v1.1
    الاستخدام: node tests/smoke.mjs
    مع خادم شغّال: TEST_URL=http://127.0.0.1:8080 node tests/smoke.mjs */
 import { readFileSync, existsSync } from 'node:fs';
@@ -24,15 +24,20 @@ try {
   ok(m.icons.every((i) => existsSync(root + i.src)), 'manifest: مسارات الأيقونات صحيحة');
 } catch { ok(false, 'manifest JSON صالح'); }
 
-// 3) الهيكل
+// 3) الهيكل — المعرفات الأساسية + معرفات v1.1
 const html = readFileSync(root + 'index.html', 'utf8');
 ok(html.includes('dir="rtl"'), 'index: اتجاه RTL');
-for (const id of ['view-home', 'view-people', 'view-settings', 'sheetPerson', 'sheetDetail',
-  'sheetPay', 'sheetShare', 'modalConfirm', 'statNet', 'btnAdd', 'currencySel']) {
-  ok(html.includes(`id="${id}"`), `index: id=#${id}`);
-}
+const ids = [
+  'view-home', 'view-people', 'view-settings', 'sheetPerson', 'sheetDetail',
+  'sheetPay', 'sheetShare', 'modalConfirm', 'statNet', 'btnAdd', 'currencySel',
+  // v1.1 — حزمة الانتشار
+  'sheetInvite', 'inviteMsg', 'inviteSum', 'btnInviteAccept', 'btnInviteLater',
+  'btnShareSummary', 'installBanner', 'btnInstall', 'shLink', 'shNative', 'myName'
+];
+for (const id of ids) ok(html.includes(`id="${id}"`), `index: id=#${id}`);
 ok(html.includes('manifest.json'), 'index: رابط manifest');
 ok(html.includes('js/app.js'), 'index: تحميل app.js');
+ok(html.includes('v1.1.0'), 'index: الإصدار v1.1.0');
 
 // 4) سلامة صياغة JS
 try {
@@ -44,18 +49,28 @@ try {
   ok(true, 'sw.js سليم نحوًا');
 } catch (e) { ok(false, 'sw.js سليم نحوًا'); }
 
-// 5) الـ Service Worker يخزّن الأصول
+// 5) الـ Service Worker
 const sw = readFileSync(root + 'sw.js', 'utf8');
-ok(sw.includes('dhimmati-v1') && sw.includes('index.html'), 'sw: استراتيجية كاش معرّفة');
+ok(sw.includes('dhimmati-v1.1') && sw.includes('index.html'), 'sw: كاش v1.1 معرّف');
 
-// 6) منطق أساسي في app.js
+// 6) المنطق الأساسي + مميزات الانتشار
 const app = readFileSync(root + 'js/app.js', 'utf8');
-ok(app.includes('localStorage'), 'app: حفظ محلي');
-ok(app.includes('wa.me'), 'app: مشاركة واتساب');
-ok(app.includes('serviceWorker'), 'app: تسجيل PWA');
+const appChecks = [
+  ['localStorage', 'حفظ محلي'],
+  ['wa.me', 'مشاركة واتساب'],
+  ['serviceWorker', 'تسجيل PWA'],
+  ['inviteURL', 'رابط طلب موجّه'],
+  ["get('req')", 'استقبال رابط الطلب'],
+  ['shareTextSummary', 'نص ملخص قابل للمشاركة'],
+  ['navigator.share', 'مشاركة النظام'],
+  ['beforeinstallprompt', 'زر تثبيت PWA'],
+  ['myName', 'اسم المستخدم في الرسائل'],
+  ['makeCard', 'توليد بطاقات PNG']
+];
+for (const [needle, label] of appChecks) ok(app.includes(needle), `app: ${label}`);
 ok(!/api[_-]?key|Bearer |token=/i.test(app), 'app: بلا مفاتيح/توكنات خارجية');
 
-// 7) الصفحة العامة لفحص الجدوى
+// 7) صفحة الجدوى
 const jadwa = readFileSync(root + 'jadwa.html', 'utf8');
 ok(jadwa.includes('95.9'), 'jadwa: يعرض المؤشر 95.9%');
 
@@ -71,7 +86,7 @@ if (base) {
   try {
     const r = await fetch(base.replace(/\/$/, '') + '/');
     const t = await r.text();
-    ok(t.includes('ذِمّتي'), 'HTTP: المحتوى العربي يصلي سليمًا');
+    ok(t.includes('ذِمّتي') && t.includes('sheetInvite'), 'HTTP: المحتوى العربي + طبقة الدعوة يصلان سليمين');
   } catch { ok(false, 'HTTP: محتوى عربي'); }
 } else {
   console.log('ℹ️  (اختياري) TEST_URL=... لفحص عبر HTTP');

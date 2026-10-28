@@ -1,5 +1,5 @@
 'use strict';
-/* ═══════════ ذِمّتي — دفتر الديون الذكي ═══════════
+/* ═══════════ ذِمّتي — دفتر الديون الذكي (v1.1.0) ═══════════
    كل البيانات محلية (localStorage) — بدون سيرفر، بدون تتبع. */
 
 /* ─── ثوابت ─── */
@@ -30,7 +30,6 @@ function esc(s) {
 }
 
 function parseAmt(v) {
-  // يقبل الأرقام العربية والفاصلة والوصف
   let s = String(v ?? '').replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
   s = s.replace(/[^\d.]/g, '');
   const parts = s.split('.');
@@ -41,7 +40,7 @@ function parseAmt(v) {
 
 /* ─── الحالة ─── */
 function defaults() {
-  return { v: 1, currency: 'ILS', theme: 'auto', people: [], log: [] };
+  return { v: 1, currency: 'ILS', theme: 'auto', myName: '', people: [], log: [] };
 }
 
 function load() {
@@ -51,6 +50,7 @@ function load() {
       const d = JSON.parse(raw);
       if (d && Array.isArray(d.people) && Array.isArray(d.log)) {
         d.people.forEach((p) => { if (typeof p.bal !== 'number') p.bal = 0; });
+        if (typeof d.myName !== 'string') d.myName = '';
         return d;
       }
     }
@@ -67,6 +67,8 @@ let payMode = 'pay';
 let payDir = 'credit';
 let shareCtx = { type: 'app' };
 let sheetStack = [];
+let pendingInvite = null;
+let deferredPrompt = null;
 
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(S)); }
@@ -265,6 +267,7 @@ function addPerson({ name, dir, amount, note }) {
   S.log.push({ id: uid(), pid: p.id, kind: 'add', amount, dir, date: Date.now() });
   save();
   render();
+  return p;
 }
 
 function applyPay(pid, amount) {
@@ -389,7 +392,7 @@ function openPaySheet(mode) {
     $('#payDirField').hidden = true;
   } else {
     $('#payTitle').textContent = 'دين جديد';
-    $('#payDirField').hidden = p.bal !== 0; // إذا الرصيد صفر نطلب الجهة
+    $('#payDirField').hidden = p.bal !== 0;
     if (p.bal === 0) {
       payDir = 'credit';
       $$('#payDir .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.dir === payDir));
@@ -405,20 +408,40 @@ function appURL() {
   return location.origin + location.pathname.replace(/index\.html$/, '');
 }
 
+/* رابط طلب موجّه: يفتح عند الطرف الآخر باسمه ومبلغه — قلب حلقة الانتشار */
+function inviteURL(p) {
+  const u = new URL(appURL());
+  u.searchParams.set('req', '1');
+  u.searchParams.set('n', p.name);
+  u.searchParams.set('a', String(Math.abs(p.bal)));
+  u.searchParams.set('d', p.bal >= 0 ? 'credit' : 'debit');
+  if (S.myName) u.searchParams.set('s', S.myName);
+  if (p.note) u.searchParams.set('note', p.note);
+  return u.toString();
+}
+
+function signOff() { return S.myName ? `\n— ${S.myName}` : ''; }
+
 function shareTextApp() {
   return `بدك دفتر ذكي للي عليك واللي ليك؟ «ذِمّتي» بيسجّل الديون، بيفكّرك، وببلمسة بتوصل لواتساب — عربي بالكامل ومن غير تسجيل 👉 ${appURL()}`;
 }
 
 function shareTextPerson(p) {
   const amt = fmt(Math.abs(p.bal));
-  const url = appURL();
+  const url = p.bal !== 0 ? inviteURL(p) : appURL();
   if (p.bal > 0) {
-    return `يا ${p.name}، تذكير لطيف: بذمتك عندي ${amt} 😊 لو بدك ترتّب ذمّتك وذممك، جرّب دفتر «ذِمّتي» — كل شي بمكان واحد 👉 ${url}`;
+    return `يا ${p.name}، تذكير لطيف: بذمتك عندي ${amt} 😊 والطلب مسجّل برابط — افتحه وسجّله بدقائق 👉 ${url}${signOff()}`;
   }
   if (p.bal < 0) {
-    return `يا ${p.name}، بذمّتي عليك ${amt} 💸 ولسا بدي أسدّدلك — تابعنا على دفتر «ذِمّتي» وخلي الحساب دايمًا واضح 👉 ${url}`;
+    return `يا ${p.name}، بذمّتي عليك ${amt} 💸 ولسا بدي أسدّدلك — فتح الرابط بينزّل المبلغ بدفترك على طول 👉 ${url}${signOff()}`;
   }
-  return `يا ${p.name}، حساباتنا خلصت وتسديدنا تمام ✔ يلا سجّل أنت كمان بـ«ذِمّتي» 👉 ${url}`;
+  return `يا ${p.name}، حساباتنا خلصت وتسديدنا تمام ✔ يلا سجّل أنت كمان بـ«ذِمّتي» 👉 ${url}${signOff()}`;
+}
+
+function shareTextSummary() {
+  const t = totals();
+  const top = sortPeople(S.people).find((p) => p.bal > 0);
+  return `ملخّص دفترك بـ«ذِمّتي»: مستحق ليّا ${fmt(t.credit)} · مستحق منّي ${fmt(t.debt)} · الصافي ${fmt(t.net)}${top ? ` · وأكبر مدين: ${top.name}` : ''} — نظّم ذمّك وبذمّتك بدون تسجيل 👉 ${appURL()}${signOff()}`;
 }
 
 function currentShareText() {
@@ -426,14 +449,21 @@ function currentShareText() {
     const p = findP(shareCtx.pid);
     if (p) return shareTextPerson(p);
   }
+  if (shareCtx.type === 'summary') return shareTextSummary();
   return shareTextApp();
 }
 
 function openShare(ctx) {
   shareCtx = ctx;
-  const isApp = ctx.type === 'app';
-  $('#shareTitle').textContent = isApp ? 'شارك ذِمّتي' : 'شارك مع ' + (findP(ctx.pid)?.name || '');
+  const isPerson = ctx.type === 'person';
+  const p = isPerson ? findP(ctx.pid) : null;
+  if (ctx.type === 'summary') $('#shareTitle').textContent = 'ملخّص ذمّتي';
+  else if (isPerson) $('#shareTitle').textContent = 'شارك مع ' + (p ? p.name : '');
+  else $('#shareTitle').textContent = 'شارك ذِمّتي';
+
   $('#sharePreview').textContent = currentShareText();
+  $('#shLink').classList.toggle('hidden', !(isPerson && p && p.bal !== 0));
+  $('#shNative').classList.toggle('hidden', typeof navigator.share !== 'function');
   openSheet($('#sheetShare'));
 }
 
@@ -449,16 +479,7 @@ function roundRectPath(x, X, Y, w, h, r) {
   x.closePath();
 }
 
-async function makeCard() {
-  const W = 1080, H = 1080;
-  const c = document.createElement('canvas');
-  c.width = W; c.height = H;
-  const x = c.getContext('2d');
-  const F = '"Segoe UI", Tahoma, "Noto Sans Arabic", sans-serif';
-  const sym = (CUR[S.currency] || CUR.ILS).sym;
-  const p = shareCtx.type === 'person' ? findP(shareCtx.pid) : null;
-
-  // الخلفية
+function drawFrame(x, W, H) {
   const g = x.createLinearGradient(W, 0, 0, H);
   g.addColorStop(0, '#12857A');
   g.addColorStop(0.55, '#0F766E');
@@ -469,26 +490,83 @@ async function makeCard() {
   x.beginPath(); x.arc(130, 130, 230, 0, 7); x.fill();
   x.fillStyle = 'rgba(0,0,0,.10)';
   x.beginPath(); x.arc(980, 990, 300, 0, 7); x.fill();
-
-  // العلامة
   x.textAlign = 'right';
   x.direction = 'rtl';
   x.fillStyle = '#E9B949';
-  x.font = `900 62px ${F}`;
+  x.font = '900 62px "Segoe UI", Tahoma, "Noto Sans Arabic", sans-serif';
   x.fillText('ذِمّتي', W - 84, 128);
   x.fillStyle = 'rgba(255,255,255,.78)';
-  x.font = `500 32px ${F}`;
+  x.font = '500 32px "Segoe UI", Tahoma, "Noto Sans Arabic", sans-serif';
   x.fillText('دفتر الديون الذكي', W - 84, 178);
+}
 
-  // البطاقة الداخلية
+function drawFooter(x, W, H) {
+  const F = '"Segoe UI", Tahoma, "Noto Sans Arabic", sans-serif';
+  x.textAlign = 'center';
+  x.fillStyle = '#E9B949';
+  x.font = '800 38px ' + F;
+  x.fillText('افتح دفترك أنت كمان 👇', W / 2, 872);
+  x.fillStyle = '#FFFFFF';
+  x.font = '800 46px ' + F;
+  x.fillText(appURL().replace(/^https?:\/\//, ''), W / 2, 944);
+  x.fillStyle = 'rgba(255,255,255,.62)';
+  x.font = '500 30px ' + F;
+  x.fillText('كل بياناتك تبقى عندك — من غير تسجيل', W / 2, 1012);
+}
+
+async function makeCard() {
+  const W = 1080, H = 1080;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const x = c.getContext('2d');
+  const F = '"Segoe UI", Tahoma, "Noto Sans Arabic", sans-serif';
+  const sym = (CUR[S.currency] || CUR.ILS).sym;
+  const p = shareCtx.type === 'person' ? findP(shareCtx.pid) : null;
+
+  drawFrame(x, W, H);
   roundRectPath(x, 80, 268, W - 160, 500, 44);
   x.fillStyle = 'rgba(255,255,255,.10)';
   x.fill();
   x.strokeStyle = 'rgba(255,255,255,.26)';
   x.lineWidth = 2;
   x.stroke();
-
+  x.direction = 'rtl';
   x.textAlign = 'center';
+
+  if (shareCtx.type === 'summary') {
+    const t = totals();
+    const top = sortPeople(S.people).find((q) => q.bal > 0);
+    x.fillStyle = 'rgba(255,255,255,.85)';
+    x.font = `700 42px ${F}`;
+    x.fillText('ملخّص ذمّتي', W / 2, 360);
+
+    const rows = [
+      ['مستحق ليّا', fmt(t.credit), '#B9FFDD'],
+      ['مستحق منّي', fmt(t.debt), '#FFC9D4'],
+      ['الصافي', fmt(t.net), '#FFFFFF']
+    ];
+    rows.forEach((r, i) => {
+      const y = 452 + i * 96;
+      x.textAlign = 'right';
+      x.fillStyle = 'rgba(255,255,255,.75)';
+      x.font = `600 38px ${F}`;
+      x.fillText(r[0], W - 150, y + 12);
+      x.textAlign = 'left';
+      x.fillStyle = r[2];
+      x.font = `900 52px ${F}`;
+      x.fillText(r[1], 150, y + 14);
+    });
+
+    x.textAlign = 'center';
+    x.fillStyle = 'rgba(255,255,255,.85)';
+    x.font = `600 34px ${F}`;
+    x.fillText(
+      top ? `وأكبر مدين: ${top.name}` : `${S.people.length} شخص بدفترك`,
+      W / 2, 738
+    );
+    drawFooter(x, W, H);
+    return new Promise((res) => c.toBlob(res, 'image/png'));
+  }
 
   if (p) {
     const cls = balClass(p.bal);
@@ -523,17 +601,7 @@ async function makeCard() {
     x.fillText('عربي · بدون تسجيل · بياناتك عندك', W / 2, 700);
   }
 
-  // التذييل
-  x.fillStyle = '#E9B949';
-  x.font = `800 38px ${F}`;
-  x.fillText('افتح دفترك أنت كمان 👇', W / 2, 872);
-  x.fillStyle = '#FFFFFF';
-  x.font = `800 46px ${F}`;
-  x.fillText(appURL().replace(/^https?:\/\//, ''), W / 2, 944);
-  x.fillStyle = 'rgba(255,255,255,.62)';
-  x.font = `500 30px ${F}`;
-  x.fillText('كل بياناتك تبقى عندك — من غير تسجيل', W / 2, 1012);
-
+  drawFooter(x, W, H);
   return new Promise((res) => c.toBlob(res, 'image/png'));
 }
 
@@ -581,10 +649,73 @@ function dl(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
+/* ─── رابط الطلب الموجّه: الاستقبال ─── */
+function cleanURL() {
+  try { history.replaceState(null, '', location.pathname); } catch (e) { /* file:// */ }
+}
+
+function handleInvite() {
+  let q;
+  try { q = new URLSearchParams(location.search); } catch (e) { return; }
+  if (q.get('req') !== '1') return;
+
+  const seenKey = 'dhimmati.req:' + location.search;
+  if (sessionStorage.getItem(seenKey)) { cleanURL(); return; }
+  sessionStorage.setItem(seenKey, '1');
+
+  const sender = (q.get('s') || '').trim() || 'الطرف الآخر';
+  const amount = parseAmt(q.get('a'));
+  const origDir = q.get('d') === 'debit' ? 'debit' : 'credit';
+  const recDir = origDir === 'credit' ? 'debit' : 'credit'; // المعكوس لطرف الآخر
+  const note = (q.get('note') || '').trim();
+  const toName = (q.get('n') || '').trim();
+
+  if (!amount) { cleanURL(); return; }
+
+  pendingInvite = { sender, amount, recDir, note };
+  $('#inviteMsg').textContent = (toName ? `يا ${toName}، ` : '') +
+    `${sender} بعتلك طلب ذمّة — بدي تسجّله بدفترك الآن؟`;
+  $('#inviteSum').innerHTML =
+    `<b>${fmt(amount)}</b><span>${recDir === 'debit' ? 'أنا عليه' : 'ليّا عليه'} ${esc(sender)}</span>`;
+  cleanURL();
+  openSheet($('#sheetInvite'));
+}
+
+function acceptInvite() {
+  if (!pendingInvite) { closeTop(); return; }
+  const { sender, amount, recDir, note } = pendingInvite;
+  const p = addPerson({
+    name: sender,
+    dir: recDir,
+    amount,
+    note: note ? `رابط طلب — ${note}` : 'رابط طلب'
+  });
+  pendingInvite = null;
+  closeTop();
+  showView('home');
+  toast('انسجّل بطلبك ✔');
+  setTimeout(() => openDetail(p.id), 350);
+}
+
+/* ─── تثبيت PWA ─── */
+function wireInstall() {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    if (!sessionStorage.getItem('dhimmati.banner')) $('#installBanner').classList.remove('hidden');
+  });
+  window.addEventListener('appinstalled', () => {
+    $('#installBanner').classList.add('hidden');
+    deferredPrompt = null;
+    toast('انثبّت ذِمّتي على جهازك ✔');
+  });
+}
+
 /* ─── الإعدادات ─── */
 function syncSettingsUI() {
   $$('#themeSeg .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.tv === S.theme));
   $('#currencySel').value = S.currency;
+  $('#myName').value = S.myName || '';
 }
 
 function exportData() {
@@ -745,11 +876,42 @@ function wire() {
 
   // المشاركة
   $$('.js-share-app').forEach((b) => b.addEventListener('click', () => openShare({ type: 'app' })));
+  $('#btnShareSummary').addEventListener('click', () => openShare({ type: 'summary' }));
   $('#shWhats').addEventListener('click', () => {
     window.open('https://wa.me/?text=' + encodeURIComponent(currentShareText()), '_blank', 'noopener');
   });
   $('#shCopy').addEventListener('click', () => copyText(currentShareText()));
   $('#shCard').addEventListener('click', shareCard);
+  $('#shLink').addEventListener('click', () => {
+    const p = findP(shareCtx.pid);
+    if (p && p.bal !== 0) copyText(inviteURL(p));
+    else toast('ما في مبلغ مفتوح للمشاركة');
+  });
+  $('#shNative').addEventListener('click', async () => {
+    try { await navigator.share({ title: 'ذِمّتي', text: currentShareText() }); }
+    catch (e) { /* ألغى المستخدم */ }
+  });
+
+  // رابط الطلب الموجّه — الاستقبال
+  $('#btnInviteAccept').addEventListener('click', acceptInvite);
+  $('#btnInviteLater').addEventListener('click', () => {
+    pendingInvite = null;
+    closeTop();
+    toast('تمام — الدفتر مفتوح قدامك');
+  });
+
+  // تثبيت التطبيق
+  $('#btnInstall').addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    try { await deferredPrompt.userChoice; } catch (e) { /* */ }
+    deferredPrompt = null;
+    $('#installBanner').classList.add('hidden');
+  });
+  $('#btnInstallClose').addEventListener('click', () => {
+    $('#installBanner').classList.add('hidden');
+    sessionStorage.setItem('dhimmati.banner', '1');
+  });
 
   // الإعدادات
   $('#currencySel').addEventListener('change', (e) => {
@@ -757,6 +919,10 @@ function wire() {
     save();
     render();
     toast('انغيّرت العملة ✔');
+  });
+  $('#myName').addEventListener('input', (e) => {
+    S.myName = e.target.value.trim();
+    save();
   });
   $('#btnExport').addEventListener('click', exportData);
   $('#btnImport').addEventListener('click', () => $('#fileImport').click());
@@ -774,10 +940,11 @@ function wire() {
   $('#btnClear').addEventListener('click', async () => {
     const ok = await confirmBox('راح تروح كل البيانات نهائيًا. نسخة احتياطية؟', 'تفريغ');
     if (!ok) return;
-    const keepCur = S.currency, keepTheme = S.theme;
+    const keepCur = S.currency, keepTheme = S.theme, keepName = S.myName;
     S = defaults();
     S.currency = keepCur;
     S.theme = keepTheme;
+    S.myName = keepName;
     save();
     render();
     toast('انفرغ الدفتر');
@@ -787,7 +954,7 @@ function wire() {
   $('#backdrop').addEventListener('click', closeTop);
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-      if (!$('#modalConfirm').hidden) return; // النافذة الفرعية بتقرر
+      if (!$('#modalConfirm').hidden) return;
       closeTop();
     }
   });
@@ -802,7 +969,9 @@ function init() {
   applyTheme();
   syncSettingsUI();
   wire();
+  wireInstall();
   render();
+  handleInvite();
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});

@@ -41,10 +41,26 @@
 
       <!-- ======= الرئيسية ======= -->
       <section class="view" id="view-home">
+
+        <div class="install-banner hidden" id="installBanner">
+          <span class="ib-ic">📲</span>
+          <div class="ib-text">
+            <b>ثبّت ذِمّتي على جهازك</b>
+            <small>يفتح أسرع · يشتغل بدون إنترنت</small>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" id="btnInstall">تثبيت</button>
+          <button type="button" class="install-x" id="btnInstallClose" aria-label="إغلاق">✕</button>
+        </div>
+
         <div class="hero card">
           <div class="hero-top">
             <span class="hero-label">الصافي — ليّا ناقص منّي</span>
-            <span class="hero-count" id="peopleCount"></span>
+            <span class="hero-right">
+              <span class="hero-count" id="peopleCount"></span>
+              <button type="button" class="hero-ic" id="btnShareSummary" title="شارك ملخّص ذمّتك" aria-label="شارك ملخص ذمتك">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
+              </button>
+            </span>
           </div>
           <div class="hero-amount" id="statNet">0 ₪</div>
           <div class="hero-grid">
@@ -124,6 +140,13 @@
         </div>
 
         <div class="set-group">
+          <h3>اسمك في الرسائل والروابط</h3>
+          <div class="set-row">
+            <input id="myName" class="input" type="text" placeholder="مثلاً: أحمد — يوقّع رسايلك وروابط الطلب" maxlength="40" autocomplete="name">
+          </div>
+        </div>
+
+        <div class="set-group">
           <h3>البيانات</h3>
           <button type="button" class="set-item" id="btnExport">
             <span>⬇︎ تصدير نسخة احتياطية</span><small>ملف JSON</small>
@@ -146,7 +169,7 @@
             <span>📊 فحص الجدوى الكامل</span><small>الانتشار 95.9%</small>
           </a>
           <button type="button" class="set-item js-share-app">
-            <span>📤 مشاركة التطبيق</span><small> link زي ما هو</small>
+            <span>📤 مشاركة التطبيق</span><small>رسالة + بطاقة</small>
           </button>
         </div>
 
@@ -156,7 +179,7 @@
         </div>
 
         <footer class="app-footer">
-          ذِمّتي v1.0.0 — مبني بالكامل عربيًا · <a href="jadwa.html">فحص الجدوى</a>
+          ذِمّتي v1.1.0 — مبني بالكامل عربيًا · <a href="jadwa.html">فحص الجدوى</a>
         </footer>
       </section>
 
@@ -183,6 +206,19 @@
 
   <!-- ===== طبقات (Sheets) ===== -->
   <div class="backdrop" id="backdrop" hidden></div>
+
+  <!-- طلب ذمّة موجّه (يصل عبر الرابط) -->
+  <div class="sheet" id="sheetInvite" hidden role="dialog" aria-modal="true">
+    <div class="sheet-grip"></div>
+    <div class="invite-box">
+      <div class="invite-ic">🤝</div>
+      <h3>طلب ذمّة جديد</h3>
+      <p id="inviteMsg"></p>
+      <div class="invite-sum" id="inviteSum"></div>
+      <button type="button" class="btn btn-primary btn-block" id="btnInviteAccept">سجّل في دفترك</button>
+      <button type="button" class="btn btn-ghost btn-block" id="btnInviteLater">افتحني الدفتر عادي</button>
+    </div>
+  </div>
 
   <!-- إضافة/تعديل شخص -->
   <div class="sheet" id="sheetPerson" hidden role="dialog" aria-modal="true">
@@ -257,6 +293,14 @@
         <button type="button" class="share-btn copy" id="shCopy">
           <span class="s-ic">📋</span>
           <span><b>نسخ النص</b><small>لصق بأي مكان</small></span>
+        </button>
+        <button type="button" class="share-btn link hidden" id="shLink">
+          <span class="s-ic">🔗</span>
+          <span><b>رابط طلب مباشر</b><small>ينسخ رابط الطلب الموجّه باسمه ومبلغه</small></span>
+        </button>
+        <button type="button" class="share-btn native hidden" id="shNative">
+          <span class="s-ic">📲</span>
+          <span><b>مشاركة النظام</b><small>أي تطبيق على جهازك</small></span>
         </button>
       </div>
       <button type="button" class="btn btn-ghost btn-block" data-close>إغلاق</button>
